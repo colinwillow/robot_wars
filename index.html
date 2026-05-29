@@ -559,28 +559,23 @@ function updateCamera(dt){
   CAM.focus.lerp(CAM.tfocus,0.18);
 
   if(CAM.aimMode){
-    // ── 3D AIM MODE — over-shoulder, camera behind player looking forward ──
-    CAM.pitch=lerp(CAM.pitch,CAM.tpitch,0.14);
+    CAM.pitch=lerp(CAM.pitch,CAM.tpitch,0.18);
+    // Simple, direct over-shoulder camera from yaw + pitch
+    // Forward direction (what we're aiming AT):
+    const fwdX=-Math.sin(CAM.yaw)*Math.cos(CAM.pitch);
+    const fwdY= Math.sin(CAM.pitch);   // positive pitch = look UP
+    const fwdZ=-Math.cos(CAM.yaw)*Math.cos(CAM.pitch);
+    // Store normalized forward for throw — this IS the throw direction
+    CAM._aimFwdX=fwdX; CAM._aimFwdY=fwdY; CAM._aimFwdZ=fwdZ;
+    // Camera sits behind player (opposite of fwd) and slightly above
     const d=CAM.dist;
-    const cp=Math.cos(CAM.pitch), sp=Math.sin(CAM.pitch);
-    // Camera sits BEHIND the player in the aim direction, elevated by pitch
-    // "Behind" = opposite of where we're looking, so +yaw offset
-    const camOffsetX= Math.sin(CAM.yaw)*d*cp;
-    const camOffsetY= d*sp + 30;   // 30 = fixed height above player center
-    const camOffsetZ= Math.cos(CAM.yaw)*d*cp;
     const focusX=CAM.focus.x, focusY=CAM.focus.y+20, focusZ=CAM.focus.z;
-    camera.position.set(
-      focusX + camOffsetX,
-      focusY + camOffsetY,
-      focusZ + camOffsetZ
-    );
-    // Look FORWARD from camera — opposite of the offset direction
-    const lookDist=300;
-    camera.lookAt(
-      focusX - Math.sin(CAM.yaw)*lookDist*cp,
-      focusY - lookDist*sp,
-      focusZ - Math.cos(CAM.yaw)*lookDist*cp
-    );
+    const camX=focusX - fwdX*d;
+    const camY=focusY - fwdY*d + 15; // always slightly above player regardless of pitch
+    const camZ=focusZ - fwdZ*d;
+    camera.position.set(camX, camY, camZ);
+    // Look from camera toward focus+forward
+    camera.lookAt(focusX+fwdX*100, focusY+fwdY*100, focusZ+fwdZ*100);
     CAM.trauma=Math.max(0,CAM.trauma-dt*3.2);
     return;
   }
@@ -5239,23 +5234,21 @@ class Player{
   _buildShieldMesh(){
     if(this._shieldMesh3D) return;
     const group=new THREE.Group();
-    // Half-sphere dome: SphereGeometry cap opens toward +Y by default.
-    // We rotate X by +π/2 so it opens toward -Z (forward in local space).
-    const domeGeo=new THREE.SphereGeometry(28,12,8,0,Math.PI*2,0,Math.PI*0.5);
-    this._shieldMat3D=new THREE.MeshBasicMaterial({color:0x00aaff,wireframe:true,transparent:true,opacity:0.35,blending:THREE.AdditiveBlending,depthWrite:false});
+    // Flatter half-sphere: thetaLength = π*0.35 (less tall, more disc-like)
+    // rotation.x = π/2 opens cap toward -Z (forward in local space)
+    const domeGeo=new THREE.SphereGeometry(30,14,6,0,Math.PI*2,0,Math.PI*0.35);
+    this._shieldMat3D=new THREE.MeshBasicMaterial({color:0x00aaff,wireframe:true,transparent:true,opacity:0.4,blending:THREE.AdditiveBlending,depthWrite:false});
     const dome=new THREE.Mesh(domeGeo,this._shieldMat3D);
-    dome.rotation.x=Math.PI/2; // open face toward -Z (forward)
+    dome.rotation.x=Math.PI/2;
     group.add(dome);
-    // Rim ring at flat opening edge, in XY plane (faces -Z)
-    const rimGeo=new THREE.TorusGeometry(28,1,4,32,Math.PI*2);
-    this._shieldRimMat=new THREE.MeshBasicMaterial({color:0x44ddff,transparent:true,opacity:0.8,blending:THREE.AdditiveBlending,depthWrite:false});
+    // Rim ring
+    const rimGeo=new THREE.TorusGeometry(30,1.2,4,32,Math.PI*2);
+    this._shieldRimMat=new THREE.MeshBasicMaterial({color:0x44ddff,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false});
     const rim=new THREE.Mesh(rimGeo,this._shieldRimMat);
-    // Torus default is in XY plane, which already faces -Z — no rotation needed
     group.add(rim);
-    // Solid face fill
-    const faceMat=new THREE.MeshBasicMaterial({color:0x0044aa,transparent:true,opacity:0.08,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
-    const face=new THREE.Mesh(new THREE.CircleGeometry(28,32),faceMat);
-    // CircleGeometry faces +Z by default — rotate to face -Z
+    // Face fill
+    const faceMat=new THREE.MeshBasicMaterial({color:0x0044aa,transparent:true,opacity:0.1,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
+    const face=new THREE.Mesh(new THREE.CircleGeometry(30,32),faceMat);
     face.rotation.y=Math.PI;
     group.add(face);
     this._shieldFaceMat=faceMat;
@@ -5315,9 +5308,12 @@ class Player{
         const sz=this.wz+Math.sin(this.aim)*shieldDist;
         const chestY=28+this.py; // chest height above ground
         this._shieldMesh3D.position.set(sx, chestY, sz);
-        // Group Y rotation: -this.aim aligns local -Z with aim direction
-        // (dome opens toward -Z in local space, so -Z should face away from player = aim direction)
-        this._shieldMesh3D.rotation.y=-this.aim+Math.PI;
+        // -this.aim rotates local -Z toward aim direction (player faces +X at aim=0, -Z→+X at rotation.y=-aim... 
+        // actually rotation.y = aim+π/2 makes local +Z face aim direction, so local -Z faces opposite = toward player
+        // We want dome (opening toward -Z) to face AWAY from player = toward enemies = aim direction
+        // So we need local -Z = aim direction → rotation.y = aim (not -aim+π)
+        // "90 degrees too far CCW" from before → try rotation.y = -this.aim - Math.PI/2
+        this._shieldMesh3D.rotation.y = -this.aim - Math.PI/2;
         // Flash on hit
         if(this._shieldHitFlash>0){
           this._shieldHitFlash--;
@@ -6890,22 +6886,21 @@ function enterAimMode(){
 function exitAimMode(){
   if(!CAM.aimMode) return;
   CAM.aimMode=false;
-  // Smoothly lerp back to saved camera — set targets and let updateCamera ease to them
-  if(CAM._savedDist){ CAM.dist=lerp(CAM.dist,CAM._savedDist,0.08); }
-  CAM.dist=CAM._savedDist||230;
-  CAM.height=CAM._savedHeight||200;
-  CAM.tpitch=0; CAM.pitch=0;
+  CAM.tpitch=0;
+  // Don't snap — _camRestoreTick lerps dist/height back over ~0.5s
   document.getElementById('fp-crosshair').style.display='none';
 }
 
-// Smooth camera restore — called each frame after exitAimMode to ease dist/height back
 function _camRestoreTick(){
   if(CAM.aimMode) return;
-  if(CAM._savedDist&&Math.abs(CAM.dist-CAM._savedDist)>1){
+  if(CAM._savedDist){
     CAM.dist=lerp(CAM.dist,CAM._savedDist,0.1);
     CAM.height=lerp(CAM.height,CAM._savedHeight||200,0.1);
-  } else if(CAM._savedDist){
-    CAM._savedDist=null; CAM._savedHeight=null;
+    CAM.pitch=lerp(CAM.pitch,0,0.15); // smooth pitch back to 0
+    if(Math.abs(CAM.dist-CAM._savedDist)<0.5){
+      CAM.dist=CAM._savedDist; CAM.height=CAM._savedHeight||200;
+      CAM._savedDist=null; CAM._savedHeight=null;
+    }
   }
 }
 
@@ -6915,7 +6910,7 @@ window.addEventListener('mousemove',e=>{ if(IS_TOUCH)return;
     const dx=e.clientX-(mouse._lastMX||e.clientX);
     const dy=e.clientY-(mouse._lastMY||e.clientY);
     CAM.tyaw-=dx*0.005;           // mouse right = camera turns right
-    CAM.tpitch=clamp((CAM.tpitch||0)+dy*0.004, -0.55, 0.75); // mouse down = look down
+    CAM.tpitch=clamp((CAM.tpitch||0)+dy*0.006, -0.3, 1.2); // wider range, look up more
   }
   mouse._lastMX=e.clientX; mouse._lastMY=e.clientY;
 });
@@ -6955,23 +6950,16 @@ window.addEventListener('mouseup',e=>{ if(IS_TOUCH)return;
   if(e.button===0) mouse.down=false;
   else if(e.button===2&&GS.state==='playing'&&player){
     if(CAM.aimMode&&player.bombArmed){
-      // Throw in the exact forward direction the camera is looking
-      // Camera looks toward: (-sin(yaw)*cos(pitch), -sin(pitch), -cos(yaw)*cos(pitch))
-      const cp=Math.cos(CAM.pitch), sp=Math.sin(CAM.pitch);
-      const fwdX=-Math.sin(CAM.yaw)*cp;
-      const fwdZ=-Math.cos(CAM.yaw)*cp;
-      const fwdY=-sp;  // negative because pitch up = look up = negative Y in lookAt math
-      // Actually: pitch positive = camera goes up, lookAt goes DOWN in Y → throw downward
-      // We want: pitch up = throw upward, so invert
-      const throwY=sp; // positive pitch = bomb goes upward
-      const spd=380;
+      const fx=CAM._aimFwdX||0, fy=CAM._aimFwdY||0, fz=CAM._aimFwdZ||0;
+      // fy = sin(pitch): positive = looking up = bomb goes up
+      const spd=480;
       const b=new DropBomb(
-        player.wx+fwdX*14, player.wz+fwdZ*14,
-        9+player.py+28,          // start above player head
-        fwdX*spd+player.vx*0.3,
-        fwdZ*spd+player.vz*0.3,
-        2.2,
-        throwY*spd               // initVY: up when looking up
+        player.wx+fx*14, player.wz+fz*14,
+        9+player.py+28,
+        fx*spd+player.vx*0.3,
+        fz*spd+player.vz*0.3,
+        2.5,
+        fy*spd   // positive when looking up = bomb launches upward
       );
       GS.dropBombs.push(b);
       player.bombs=Math.max(0,player.bombs-1);
@@ -7211,26 +7199,23 @@ jR.onHoldStart=function(){
   jR._holdingForJet=true;
   jR._holdStartTime=performance.now();
   jR._holdEnteredAimMode=false;
-  // Start jetpack immediately if airborne and bomb not armed
+  // Jetpack: only if airborne and no bomb
   if(player.py>8&&!player._onPlatform&&!player.bombArmed){
     player._jetting=true;
   }
+  // If bomb armed: don't do anything yet — wait for hold-still timer in main loop
 };
 jR.onHoldEnd=function(){
   if(player){
     player._jetting=false;
-    // If we were in 3D aim mode, throw bomb and exit — always, no conditions
     if(CAM.aimMode){
       if(player.bombArmed){
-        // Throw in camera forward direction
-        const cp=Math.cos(CAM.pitch), sp=Math.sin(CAM.pitch);
-        const fwdX=-Math.sin(CAM.yaw)*cp;
-        const fwdZ=-Math.cos(CAM.yaw)*cp;
-        const spd=380;
+        const fx=CAM._aimFwdX||0, fy=CAM._aimFwdY||0, fz=CAM._aimFwdZ||0;
+        const spd=480;
         const b=new DropBomb(
-          player.wx+fwdX*14, player.wz+fwdZ*14,
+          player.wx+fx*14, player.wz+fz*14,
           9+player.py+28,
-          fwdX*spd+player.vx*0.3, fwdZ*spd+player.vz*0.3, 2.2, sp*spd
+          fx*spd+player.vx*0.3, fz*spd+player.vz*0.3, 2.5, fy*spd
         );
         GS.dropBombs.push(b);
         player.bombs=Math.max(0,player.bombs-1);
@@ -7240,7 +7225,7 @@ jR.onHoldEnd=function(){
         Audio.blip(300,0.14,'sine',0.22,160);
         announce('BOMB THROWN','#ff8800');
       }
-      exitAimMode(); // always exit, even if bomb was already gone
+      exitAimMode();
     }
   }
   jR._holdEnteredAimMode=false;
@@ -7274,19 +7259,28 @@ function loop(ts){ requestAnimationFrame(loop);
       player._jetting=true;
     }
 
-    // ── 3D BOMB AIM MODE — right stick held while bomb armed ──
-    // Enter immediately on hold (no 500ms wait). Exit always on stick release (handled in onHoldEnd).
+    // ── 3D BOMB AIM MODE — right stick held STILL for 400ms while bomb armed ──
+    // Any stick movement resets the timer (movement = crosshair mode, not aim mode)
     if(IS_TOUCH&&jR._holdingForJet&&player&&player.bombArmed&&!CAM.aimMode){
-      // Smooth transition into aim mode as soon as stick is held
-      enterAimMode();
-      jR._holdEnteredAimMode=true;
-      player._jetting=false;
+      const stickMag=Math.hypot(shootIn.x,shootIn.y);
+      if(stickMag>0.15){
+        // Stick moved — reset hold timer, stay in normal crosshair mode
+        jR._holdStartTime=performance.now();
+      } else {
+        // Stick still — check if held long enough
+        const held=performance.now()-(jR._holdStartTime||0);
+        if(held>400){
+          enterAimMode();
+          jR._holdEnteredAimMode=true;
+          player._jetting=false;
+        }
+      }
     }
     // In 3D aim mode: right stick X = yaw, Y = pitch
     if(IS_TOUCH&&CAM.aimMode&&jR._holdingForJet){
       if(Math.hypot(shootIn.x,shootIn.y)>0.05){
         CAM.tyaw-=shootIn.x*0.05;
-        CAM.tpitch=clamp((CAM.tpitch||0)+shootIn.y*0.035,-0.55,0.75);
+        CAM.tpitch=clamp((CAM.tpitch||0)+shootIn.y*0.05,-0.3,1.2);
       }
     }
     // Safety: if aim mode is on but stick released and bomb gone, always exit
@@ -7532,8 +7526,34 @@ function loop(ts){ requestAnimationFrame(loop);
         let worldX=0,worldZ=0;
         if(sm>0.08){ const ws=rotInput(shootIn.x,shootIn.y); worldX=ws.x; worldZ=ws.z; }
         player.updateBomb(dt,worldX,worldZ);
+      } else if(player&&CAM.aimMode&&player.bombArmed){
+        // 3D aim mode: show trajectory arc along camera forward direction
+        player._hideAimer(); // hide ground ring/lines
+        // Show trajectory dots along the 3D throw path
+        if(player._trajDots&&CAM._aimFwdX!==undefined){
+          const fx=CAM._aimFwdX, fy=CAM._aimFwdY, fz=CAM._aimFwdZ;
+          const spd=420;
+          let sx=player.wx+fx*14, sz=player.wz+fz*14;
+          let sy=9+player.py+28;
+          let svx=fx*spd+player.vx*0.3;
+          let svz=fz*spd+player.vz*0.3;
+          let svy=fy*spd; // fy = sin(pitch): positive = looking up = bomb goes up
+          const GRAV=320, DT=0.045;
+          let bounces=0;
+          for(let i=0;i<player._trajDots.length;i++){
+            svy-=GRAV*DT; sx+=svx*DT; sz+=svz*DT; sy+=svy*DT;
+            if(sy<=9&&bounces<2){
+              sy=9; svy=Math.abs(svy)*0.45; svx*=0.7; svz*=0.7; bounces++;
+            } else if(sy<=9){ sy=9; svy=0; }
+            const frac=1-(i/player._trajDots.length)*0.7;
+            const visible=(i%2===0);
+            player._trajDots[i].position.set(sx,sy,sz);
+            player._trajDots[i].material.opacity=visible?frac*0.7:0;
+            const t=i/player._trajDots.length;
+            player._trajDots[i].material.color.setRGB(1,0.5+t*0.4,t*0.2);
+          }
+        }
       } else if(player&&CAM.aimMode){
-        // Hide ground crosshair in 3D aim mode
         player._hideAimer();
       }
       // Level objects: buttons/keys; platforms+blocks in updatePuzzleLevel (runs BEFORE player physics)
