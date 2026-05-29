@@ -147,8 +147,20 @@ canvas{display:block}
 #btn-cycle:active{transform:scale(.92);background:rgba(0,255,200,0.12)}
 #btn-cycle svg{display:block}
 #btn-cycle .cycle-label{font-size:6px;letter-spacing:1.5px;text-transform:uppercase;opacity:0.8}
-/* Bomb arm button — above right stick */
-#btn-bomb-arm{position:absolute;width:48px;height:48px;border-radius:10px;display:none;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+/* Shield button — next to bomb button above right stick */
+#btn-shield{position:absolute;width:48px;height:48px;border-radius:10px;display:none;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  pointer-events:all;z-index:16;font-family:inherit;background:rgba(0,0,0,0.4);
+  border:1.5px solid #00aaff88;color:#44ccff;box-shadow:0 0 12px #00aaff33;
+  -webkit-tap-highlight-color:transparent;cursor:pointer}
+#btn-shield.active{border-color:#00aaff;box-shadow:0 0 20px #00aaffaa;background:rgba(0,80,180,0.3);animation:shieldpulse 0.8s infinite}
+#btn-shield.breaking{border-color:#ff8800;color:#ff8800;box-shadow:0 0 16px #ff880088}
+@keyframes shieldpulse{0%,100%{box-shadow:0 0 14px #00aaffaa}50%{box-shadow:0 0 28px #00aaffee}}
+#btn-shield:active{transform:scale(.92)}
+#btn-shield svg{display:block}
+/* Shield health bar */
+#shield-bar-wrap{display:none;position:absolute;z-index:12;pointer-events:none}
+#shield-bar-track{height:4px;background:rgba(0,170,255,0.15);border-radius:2px;overflow:hidden;width:60px}
+#shield-bar-fill{height:100%;background:#00aaff;border-radius:2px;transition:width 0.1s,background 0.3s;box-shadow:0 0 6px #00aaff}
   pointer-events:all;z-index:16;font-family:inherit;background:rgba(0,0,0,0.4);
   border:1.5px solid #ff333388;color:#ff6666;box-shadow:0 0 12px #ff333333;
   -webkit-tap-highlight-color:transparent;cursor:pointer}
@@ -287,6 +299,30 @@ canvas{display:block}
   </svg>
   <span style="font-size:6px;letter-spacing:1.5px;text-transform:uppercase;opacity:0.8">BOMB</span>
 </button>
+
+<!-- SHIELD button — positioned next to bomb button, above right stick -->
+<button id="btn-shield" aria-label="Shield">
+  <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <!-- Shield body — half-sphere outline -->
+    <path d="M5 14 Q5 4 14 3 Q23 4 23 14" stroke="#44ccff" stroke-width="1.8" fill="none" opacity="0.9"/>
+    <line x1="5" y1="14" x2="23" y2="14" stroke="#44ccff" stroke-width="1.5" opacity="0.7"/>
+    <!-- Hologram grid lines -->
+    <path d="M8 11 Q14 10 20 11" stroke="#44ccff" stroke-width="0.8" fill="none" opacity="0.5"/>
+    <path d="M6.5 8 Q14 6.5 21.5 8" stroke="#44ccff" stroke-width="0.8" fill="none" opacity="0.4"/>
+    <line x1="14" y1="3" x2="14" y2="14" stroke="#44ccff" stroke-width="0.8" opacity="0.4"/>
+    <line x1="9" y1="4.5" x2="9" y2="14" stroke="#44ccff" stroke-width="0.6" opacity="0.3"/>
+    <line x1="19" y1="4.5" x2="19" y2="14" stroke="#44ccff" stroke-width="0.6" opacity="0.3"/>
+    <!-- Center emblem dot -->
+    <circle cx="14" cy="9" r="2" fill="#44ccff" opacity="0.8"/>
+  </svg>
+  <span style="font-size:6px;letter-spacing:1.5px;text-transform:uppercase;opacity:0.8">SHIELD</span>
+</button>
+
+<!-- Shield health bar -->
+<div id="shield-bar-wrap">
+  <div style="font-size:6px;letter-spacing:2px;color:#44ccff88;text-transform:uppercase;margin-bottom:2px">SHIELD</div>
+  <div id="shield-bar-track"><div id="shield-bar-fill"></div></div>
+</div>
 
 <!-- CYCLE WEAPON button — positioned above left stick dynamically by JS -->
 <button id="btn-cycle" aria-label="Cycle Weapon">
@@ -1801,7 +1837,11 @@ class EnemyBullet{
     this.mesh.position.set(this.wx,9,this.wz);
     const d=Math.hypot(this.wx,this.wz); if(d>ARENA_R)this.life=0;
     if(this.life>0&&player&&player.alive&&player.inv<=0&&player.py<40){
-      if(Math.hypot(player.wx-this.wx,player.wz-this.wz)<20){ this.life=0; playerDie(); }
+      if(Math.hypot(player.wx-this.wx,player.wz-this.wz)<20){
+        // Check if shield blocks this bullet
+        if(player.shieldActive&&player.shieldHit(8)){ this.life=0; return; }
+        this.life=0; playerDie();
+      }
     }
   }
   remove(){ scene.remove(this.mesh); }
@@ -4861,6 +4901,8 @@ class Player{
     this._jetting=false; // jetpack currently active
     this.bombState='none'; this.bombArmed=false; this._bombMesh=null;
     if(full)this.bombs=3; this.weaponLevel=1; this.model.visible=true;
+    this.shieldHp=100; this.shieldMax=100; this.shieldActive=false; this._shieldRecharge=0;
+    this._removeShieldMesh();
     this._hideAimer(); this._disarmBomb();
     this.bombState='none'; this.bombArmed=false;
   }
@@ -5088,6 +5130,113 @@ class Player{
     if(this._aimer){ scene.remove(this._aimer); this._aimer=null; }
     if(this._aimerLines){ scene.remove(this._aimerLines); this._aimerLines=null; }
   }
+  // ── SHIELD ──
+  _removeShieldMesh(){
+    if(this._shieldMesh3D){ scene.remove(this._shieldMesh3D); this._shieldMesh3D=null; }
+    if(this._shieldRimMesh){ scene.remove(this._shieldRimMesh); this._shieldRimMesh=null; }
+  }
+  _buildShieldMesh(){
+    if(this._shieldMesh3D) return;
+    // Flat-front half-sphere shield — holographic lines
+    const group=new THREE.Group();
+    // Main dome — SphereGeometry half
+    const domeGeo=new THREE.SphereGeometry(28,12,8,0,Math.PI*2,0,Math.PI*0.5);
+    this._shieldMat3D=new THREE.MeshBasicMaterial({color:0x00aaff,wireframe:true,transparent:true,opacity:0.35,blending:THREE.AdditiveBlending,depthWrite:false});
+    const dome=new THREE.Mesh(domeGeo,this._shieldMat3D);
+    dome.rotation.x=-Math.PI/2; // open face forward
+    group.add(dome);
+    // Rim ring at the flat edge
+    const rimGeo=new THREE.TorusGeometry(28,1,4,32,Math.PI*2);
+    this._shieldRimMat=new THREE.MeshBasicMaterial({color:0x44ddff,transparent:true,opacity:0.8,blending:THREE.AdditiveBlending,depthWrite:false});
+    const rim=new THREE.Mesh(rimGeo,this._shieldRimMat);
+    rim.rotation.x=Math.PI/2;
+    group.add(rim);
+    // Solid face fill — semi-transparent
+    const faceMat=new THREE.MeshBasicMaterial({color:0x0044aa,transparent:true,opacity:0.08,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
+    const face=new THREE.Mesh(new THREE.CircleGeometry(28,32),faceMat);
+    group.add(face);
+    this._shieldFaceMat=faceMat;
+    scene.add(group);
+    this._shieldMesh3D=group;
+    this._shieldHitFlash=0;
+  }
+  activateShield(){
+    if(this.shieldHp<=0){ announce('SHIELD DEPLETED','#ff4400'); return; }
+    this.shieldActive=true;
+    this._buildShieldMesh();
+    const btn=document.getElementById('btn-shield');
+    if(btn) btn.classList.add('active');
+    document.getElementById('shield-bar-wrap').style.display='block';
+    Audio.blip(660,0.1,'sine',0.12,1200);
+  }
+  deactivateShield(){
+    this.shieldActive=false;
+    const btn=document.getElementById('btn-shield');
+    if(btn) btn.classList.remove('active');
+    if(this._shieldMesh3D) this._shieldMesh3D.visible=false;
+    Audio.blip(440,0.08,'sine',0.08,300);
+  }
+  shieldHit(dmg){
+    if(!this.shieldActive||this.shieldHp<=0) return false;
+    this.shieldHp=Math.max(0,this.shieldHp-dmg);
+    this._shieldHitFlash=8;
+    Audio.blip(800+Math.random()*200,0.12,'sine',0.1,400);
+    ps.burst(this.wx,this.wz,[0.2,0.6,1],8,60);
+    if(this.shieldHp<=0){
+      this.shieldActive=false;
+      if(this._shieldMesh3D) this._shieldMesh3D.visible=false;
+      const btn=document.getElementById('btn-shield');
+      if(btn){ btn.classList.remove('active'); btn.classList.add('breaking'); }
+      announce('SHIELD DOWN','#ff4400');
+      addTrauma(0.08);
+    }
+    return true; // bullet blocked
+  }
+  updateShield(dt){
+    // Recharge when inactive
+    if(!this.shieldActive){
+      const rate=this.shieldHp<=0?8:20; // slower recharge from 0
+      this.shieldHp=Math.min(this.shieldMax,this.shieldHp+rate*dt);
+      if(this.shieldHp>0){
+        const btn=document.getElementById('btn-shield');
+        if(btn) btn.classList.remove('breaking');
+      }
+    }
+    // Update shield mesh position + visuals
+    if(this._shieldMesh3D){
+      this._shieldMesh3D.visible=this.shieldActive;
+      if(this.shieldActive){
+        // Position shield in front of player, facing aim direction
+        const shieldDist=16;
+        const sx=this.wx+Math.cos(this.aim)*shieldDist;
+        const sz=this.wz+Math.sin(this.aim)*shieldDist;
+        this._shieldMesh3D.position.set(sx,12+this.py,sz);
+        this._shieldMesh3D.rotation.y=-this.aim; // face aim direction
+        // Flash on hit
+        if(this._shieldHitFlash>0){
+          this._shieldHitFlash--;
+          const f=this._shieldHitFlash/8;
+          if(this._shieldMat3D) this._shieldMat3D.color.setHex(f>0.5?0xffffff:0x00aaff);
+          if(this._shieldRimMat) this._shieldRimMat.color.setHex(f>0.5?0xffffff:0x44ddff);
+        }
+        // Color based on health
+        const pct=this.shieldHp/this.shieldMax;
+        const col=pct>0.6?0x00aaff:pct>0.3?0xffaa00:0xff3300;
+        if(this._shieldHitFlash<=0&&this._shieldMat3D) this._shieldMat3D.color.setHex(col);
+        if(this._shieldHitFlash<=0&&this._shieldRimMat) this._shieldRimMat.color.setHex(col);
+        if(this._shieldFaceMat) this._shieldFaceMat.opacity=0.06+pct*0.1;
+        if(this._shieldMat3D) this._shieldMat3D.opacity=0.2+pct*0.2;
+      }
+    }
+    // Update shield bar UI
+    const fill=document.getElementById('shield-bar-fill');
+    if(fill){
+      const pct=this.shieldHp/this.shieldMax;
+      fill.style.width=(pct*100)+'%';
+      fill.style.background=pct>0.6?'#00aaff':pct>0.3?'#ffaa00':'#ff3300';
+      fill.style.boxShadow=this.shieldActive?`0 0 8px ${pct>0.6?'#00aaff':pct>0.3?'#ffaa00':'#ff3300'}`:'none';
+    }
+  }
   tryDash(mx,mz){ if(this.dash<1||this.dashing>0)return;
     let dx=mx,dz=mz,l=Math.hypot(dx,dz); if(l<0.2){dx=Math.cos(this.aim);dz=Math.sin(this.aim);}else{dx/=l;dz/=l;}
     this.ddx=dx;this.ddz=dz;this.dashing=12;this.dash=0;this.dashCD=80;this.inv=Math.max(this.inv,16);
@@ -5182,15 +5331,11 @@ class Player{
     const al=Math.hypot(avx,avz);
     if(al>0.15) this.aim=Math.atan2(avz,avx);
 
-    // ── CAMERA — follows aim direction on both platforms ──
-    if(al>0.15){
+    // ── CAMERA — on mobile softly follows aim; on desktop stays put (player orbits explicitly) ──
+    if(IS_TOUCH&&al>0.15){
       const desired=-this.aim-Math.PI/2;
-      let diff=((desired-CAM.yaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
-      if(Math.abs(diff)>0.35){
-        CAM.tyaw=CAM.tyaw+diff*0.05;
-      } else {
-        CAM.tyaw=lerp(CAM.tyaw,desired,0.12);
-      }
+      let diff=((desired-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
+      CAM.tyaw+=diff*0.035; // gentle lag, never snaps
     }
 
     this.fireT++;
@@ -5204,10 +5349,10 @@ class Player{
 
     // ── VERTICAL PHYSICS — gravity + jetpack ──
     const GRAV=220;
-    const JET_FORCE=380;    // upward force when jetting (fights gravity + adds lift)
-    const JET_DRAIN=28;     // fuel per second while jetting
-    const JET_RECHARGE=5;   // fuel per second while not jetting and airborne (slow — must manage fuel)
-    const GND_RECHARGE=35;  // fuel per second on ground
+    const JET_FORCE=200;    // reduced — was 380, too much vertical loft
+    const JET_DRAIN=55;     // faster drain — was 28
+    const JET_RECHARGE=5;   // slow airborne recharge unchanged
+    const GND_RECHARGE=35;  // ground recharge unchanged
 
     // Jetpack force — continuous upward push when held airborne
     if(this._jetting&&this.py>4&&!this._onPlatform){
@@ -5414,17 +5559,30 @@ class Player{
     else fire(a,'normal');
     ps.spark(this.wx+Math.cos(a)*14,this.wz+Math.sin(a)*14,[1,0.85,0]); }
   _fireRocket(od){
-    // Fire 1-3 homing rockets depending on weapon level / overdrive
     const a=this.aim;
     const spread=od?0.22:0.14;
     const count=od?3:1;
     const offsets=count===1?[0]:[-spread,0,spread];
+    // Alternate hands like _shoot does
+    if(!this._rocketSide) this._rocketSide=0;
+    const bones=this.model?.userData?.bones;
     offsets.forEach((off,i)=>{
       const ang=a+off;
-      const mx=this.wx+Math.cos(ang)*14, mz=this.wz+Math.sin(ang)*14;
-      GS.missiles.push(new Missile(mx,mz,Math.cos(ang),Math.sin(ang),9+this.py));
-      ps.ring(mx,mz,[1,0.5,0.1],4,40);
+      // Get hand bone world position — alternate R/L hand each burst
+      const side=(this._rocketSide+i)%2;
+      const handBone=side===0?'mixamorig_RightHand':'mixamorig_LeftHand';
+      let spawnX=this.wx+Math.cos(ang)*14, spawnZ=this.wz+Math.sin(ang)*14, y0=9+this.py;
+      if(bones&&bones[handBone]){
+        const hp=new THREE.Vector3();
+        bones[handBone].getWorldPosition(hp);
+        spawnX=hp.x; spawnZ=hp.z; y0=hp.y;
+      }
+      GS.missiles.push(new Missile(spawnX,spawnZ,Math.cos(ang),Math.sin(ang),y0));
+      ps.ring(spawnX,spawnZ,[1,0.5,0.1],4,40);
+      // Muzzle flash
+      for(let j=0;j<4;j++) ps._spawn(spawnX+rand(-2,2),y0,spawnZ+rand(-2,2),Math.cos(ang)*rand(40,80),rand(5,20),Math.sin(ang)*rand(40,80),1,0.5,0.1,0.04+rand(0.02));
     });
+    this._rocketSide=1-this._rocketSide;
     Audio.blip(220,0.14,'sawtooth',0.18,80);
     this._lastFiring=true;
   }
@@ -5827,20 +5985,47 @@ function startGame(levelIdx){
       newBomb.addEventListener('touchstart',e=>{
         e.preventDefault();
         if(!player||GS.state!=='playing')return;
-        if(player.bombs<=0){ announce('NO BOMBS','#ff4400'); return; }
         if(player.bombArmed){
-          // Already armed — tap disarms
-          player._disarmBomb();
+          // Already armed — second tap drops bomb straight below
+          player._throwBomb(0,0);
           newBomb.classList.remove('armed');
         } else {
+          // First tap — arm bomb only, player can now jump freely
+          if(player.bombs<=0){ announce('NO BOMBS','#ff4400'); return; }
           player._armBomb();
           newBomb.classList.add('armed');
           announce('BOMB ARMED — THROW WITH RIGHT STICK','#ff8800');
         }
       },{passive:false});
     }
-  }
-}
+    // Shield button — to the left of bomb button (both above right stick)
+    const shieldBtn=document.getElementById('btn-shield');
+    if(shieldBtn){
+      shieldBtn.style.display='flex';
+      const jrEl2=document.getElementById('joystick-right');
+      const jrRect2=jrEl2.getBoundingClientRect();
+      const sw=48;
+      // Place shield button to the left of bomb button, same height
+      shieldBtn.style.right=(window.innerWidth-jrRect2.right+jrRect2.width/2-sw/2+sw+10)+'px';
+      shieldBtn.style.bottom=(window.innerHeight-jrRect2.top+28)+'px';
+      // Position shield health bar above shield button
+      const shieldBar=document.getElementById('shield-bar-wrap');
+      if(shieldBar){
+        shieldBar.style.right=(window.innerWidth-jrRect2.right+jrRect2.width/2-sw/2+sw+8)+'px';
+        shieldBar.style.bottom=(window.innerHeight-jrRect2.top+28+sw+6)+'px';
+        shieldBar.style.position='absolute';
+      }
+      const newShield=shieldBtn.cloneNode(true);
+      shieldBtn.parentNode.replaceChild(newShield,shieldBtn);
+      newShield.addEventListener('touchstart',e=>{
+        e.preventDefault();
+        if(!player||GS.state!=='playing')return;
+        if(player.shieldActive) player.deactivateShield();
+        else player.activateShield();
+      },{passive:false});
+    }
+  } // end if(IS_TOUCH)
+} // end startGame
 
 function zoneClear(){
   if(GS.transitioning)return; GS.transitioning=true;
@@ -6483,8 +6668,41 @@ function updateUI(){
 // ════════════════════════════════════════════════════════════
 //  INPUT
 // ════════════════════════════════════════════════════════════
+// ── DOUBLE-TAP DASH — press same movement key twice within 220ms ──
+const _dashTap={code:null,time:0};
+function checkDoubleTapDash(code){
+  if(!player||GS.state!=='playing') return;
+  const now=performance.now();
+  if(_dashTap.code===code&&now-_dashTap.time<220){
+    // Double-tap — dash in that direction
+    const mv=keyMoveVec();
+    const len=Math.hypot(mv.x,mv.z);
+    if(len>0.1){
+      const dx=mv.x/len, dz=mv.z/len;
+      player._dashDir=[dx,dz];
+      player._dashRamp=9;
+      player._dashPeak=MOVE.topSpeed*2.8;
+      player._diveRollDir=[dx,dz];
+      player.inv=Math.max(player.inv,20);
+      ps.ring(player.wx,player.wz,[0,0.85,1],22,150);
+      ps.burst(player.wx,player.wz,[0,0.85,1],14,110);
+      grid.push(player.wx,player.wz,-4,70);
+      addTrauma(0.05);
+      Audio.blip(380,0.18,'sine',0.18,1400);
+    }
+    _dashTap.code=null; // reset so triple-tap doesn't chain
+  } else {
+    _dashTap.code=code;
+    _dashTap.time=now;
+  }
+}
+
 const keys={}; const moveIn={x:0,y:0}, shootIn={x:0,y:0}; const mouse={has:false,down:false,px:0,py:0};
 window.addEventListener('keydown',e=>{ keys[e.code]=true;
+  // Double-tap WASD = dash
+  if(['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowLeft','ArrowDown','ArrowRight'].includes(e.code)&&GS.state==='playing'){
+    checkDoubleTapDash(e.code);
+  }
   if(e.code==='Space'&&GS.state==='playing'&&player){
     e.preventDefault();
     if(player.py<=8||player._onPlatform){
@@ -6546,24 +6764,49 @@ window.addEventListener('mousemove',e=>{ if(IS_TOUCH)return; mouse.has=true;mous
 window.addEventListener('mousedown',e=>{ if(IS_TOUCH)return;
   if(e.button===0){mouse.has=true;mouse.down=true;}
   else if(e.button===2&&GS.state==='playing'&&player){
-    // Right-click = fire secondary weapon in aim direction
-    player.useSecWeapon(Math.cos(player.aim),Math.sin(player.aim));
-    // Trigger shoot animation — longer for rockets
-    player._lastFiring=true;
-    player._secFireActive=true;
-    clearTimeout(player._secFireTimeout);
-    const holdTime=player.secWeapon==='missile'?1500:400;
-    player._secFireTimeout=setTimeout(()=>{ if(player){ player._lastFiring=false; player._secFireActive=false; } },holdTime);
+    e.preventDefault();
+    if(!player.bombArmed){
+      // First right-click: arm the bomb
+      if(player.bombs>0){
+        player._armBomb();
+        mouse._rightHoldStart=performance.now();
+        mouse._rightHeld=true;
+      } else {
+        announce('NO BOMBS','#ff4400');
+      }
+    } else {
+      // Already armed: throw in current aim direction
+      player._throwBomb(Math.cos(player.aim),Math.sin(player.aim));
+      mouse._rightHeld=false;
+      // Restore normal camera distance
+      if(mouse._savedCamDist) CAM.dist=mouse._savedCamDist;
+      if(mouse._savedCamHeight) CAM.height=mouse._savedCamHeight;
+      mouse._savedCamDist=null; mouse._bombAimMode=false;
+    }
+  }
+});
+window.addEventListener('mousemove',e=>{ if(IS_TOUCH)return; mouse.has=true;mouse.px=e.clientX;mouse.py=e.clientY;
+  // In bomb-aim hold mode: right-drag orbits camera
+  if(mouse._bombAimMode&&mouse._rightHeld){
+    const dx=e.clientX-( mouse._lastMX||e.clientX);
+    CAM.tyaw+=dx*0.006;
+    mouse._lastMX=e.clientX;
+  } else {
+    mouse._lastMX=e.clientX;
   }
 });
 window.addEventListener('mouseup',e=>{ if(IS_TOUCH)return;
-  if(e.button===0)mouse.down=false;
-  else if(false&&e.button===2&&GS.state==='playing'&&player&&player.bombArmed){ // disabled - handled above
-    // Right-click release while armed = throw toward cursor direction
-    if(mouse.has){
-      const dir=screenToPlaneDir(mouse.px,mouse.py,player.wx,player.wz);
-      player._throwBomb(dir.x,dir.z);
+  if(e.button===0) mouse.down=false;
+  else if(e.button===2&&GS.state==='playing'&&player){
+    if(mouse._bombAimMode&&player.bombArmed){
+      // Release from hold-aim mode = throw where camera is facing
+      const throwDir=screenToPlaneDir(mouse.px,mouse.py,player.wx,player.wz);
+      player._throwBomb(throwDir.x,throwDir.z);
+      // Restore camera
+      if(mouse._savedCamDist){ CAM.dist=mouse._savedCamDist; CAM.height=mouse._savedCamHeight; }
+      mouse._savedCamDist=null; mouse._bombAimMode=false;
     }
+    mouse._rightHeld=false;
   }
 });
 window.addEventListener('contextmenu',e=>e.preventDefault());
@@ -6669,9 +6912,9 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
               announce('DASH LAUNCH!','#ffaa00');
             } else {
               // ── REGULAR DASH ──
-              const dashPower=MOVE.topSpeed*6.5; // strong enough to clearly feel
+              const dashPower=MOVE.topSpeed*2.8; // dialed back — punchy but not flying across the map
               player._dashDir=[dx,dz];
-              player._dashRamp=14;
+              player._dashRamp=9;  // shorter duration
               player._dashPeak=dashPower;
               player._diveRollDir=[dx,dz]; // signal for animation system to play roll
               player.inv=Math.max(player.inv,20); // i-frames during dash
@@ -6776,19 +7019,35 @@ jR.onTap=()=>{
   }
 };
 
-// RIGHT STICK HOLD — jetpack fires continuously while finger is down and airborne
-// onHoldStart fires immediately when the touch begins (before tap vs hold is decided)
+// RIGHT STICK HOLD — dual purpose:
+// 1. Bomb armed + held still 500ms → 3D over-shoulder bomb aim mode
+// 2. Airborne (no bomb) → jetpack
 jR.onHoldStart=function(){
   if(!player||GS.state!=='playing')return;
-  // If airborne, start jetting immediately on touch-down
-  if(player.py>8&&!player._onPlatform){
+  jR._holdingForJet=true;
+  jR._holdStartTime=performance.now();
+  jR._holdEnteredAimMode=false;
+  // Start jetpack immediately if airborne and bomb not armed
+  if(player.py>8&&!player._onPlatform&&!player.bombArmed){
     player._jetting=true;
   }
-  // Also mark stick as held — main loop will continue jetting if player becomes airborne
-  jR._holdingForJet=true;
 };
 jR.onHoldEnd=function(){
-  if(player) player._jetting=false;
+  if(player){
+    player._jetting=false;
+    // Exit 3D bomb aim mode on release — throw bomb where camera faces
+    if(jR._holdEnteredAimMode&&player.bombArmed){
+      // Compute throw direction from current camera yaw
+      const throwX=Math.sin(-CAM.yaw-Math.PI/2), throwZ=Math.cos(-CAM.yaw-Math.PI/2);
+      player._throwBomb(throwX,throwZ);
+      const bb=document.getElementById('btn-bomb-arm');
+      if(bb) bb.classList.remove('armed');
+      // Restore camera
+      if(jR._savedCamDist){ CAM.dist=jR._savedCamDist; CAM.height=jR._savedCamHeight; }
+    }
+    jR._holdEnteredAimMode=false;
+    jR._savedCamDist=null;
+  }
   jR._holdingForJet=false;
 };
 // contextmenu suppressed — right-click is jump
@@ -6814,9 +7073,33 @@ function loop(ts){ requestAnimationFrame(loop);
   try{
     let rawDt=Math.min((ts-lastT)/1000,0.033);lastT=ts;frame++;
     updateTime(); const dt=rawDt*TIME.scale;
-    // ── JETPACK HOLD — if right stick is held on mobile and player is airborne, keep jetting ──
-    if(IS_TOUCH&&jR._holdingForJet&&player&&player.py>8&&!player._onPlatform&&player.boostFuel>0){
+    // ── JETPACK HOLD — if right stick is held on mobile and player is airborne (no bomb), keep jetting ──
+    if(IS_TOUCH&&jR._holdingForJet&&player&&player.py>8&&!player._onPlatform&&player.boostFuel>0&&!player.bombArmed){
       player._jetting=true;
+    }
+
+    // ── 3D BOMB AIM MODE — right stick held still 500ms with bomb armed ──
+    if(IS_TOUCH&&jR._holdingForJet&&player&&player.bombArmed&&!jR._holdEnteredAimMode){
+      const held=performance.now()-(jR._holdStartTime||0);
+      const stickMag=Math.hypot(shootIn.x,shootIn.y);
+      if(held>500&&stickMag<0.25){
+        // Enter 3D aim mode
+        jR._holdEnteredAimMode=true;
+        jR._savedCamDist=CAM.dist;
+        jR._savedCamHeight=CAM.height;
+        CAM.dist=80; CAM.height=50; // close over-shoulder
+        player._jetting=false;
+        announce('3D AIM — LOOK WITH STICK · RELEASE TO THROW','#ff8800');
+      }
+    }
+    // In 3D aim mode: right stick orbits camera left/right
+    if(IS_TOUCH&&jR._holdEnteredAimMode&&player.bombArmed){
+      CAM.tyaw-=shootIn.x*0.04; // stick left/right orbits
+      // Show crosshair in front of camera at ground level
+      const throwX=-Math.sin(CAM.yaw), throwZ=-Math.cos(CAM.yaw);
+      const crossDist=140;
+      player._showAimer(player.wx+throwX*crossDist, player.wz+throwZ*crossDist, 1, 0);
+      // Disable normal firing/aiming while in aim mode
     }
 
     updateCamera(rawDt);
@@ -6842,22 +7125,39 @@ function loop(ts){ requestAnimationFrame(loop);
 
         // ── DIVE ROLL — triggered by left stick flick dash ──
         if(player._diveRollDir&&ud.clips){
+          const dir=player._diveRollDir;
           player._diveRollDir=null;
-          // Try to play a roll/dive clip if it exists in the GLB
-          const rollClip=ud.clips['dive_roll']||ud.clips['roll']||ud.clips['dash']||ud.clips['dive'];
-          if(rollClip&&ud.currentClip!=='dive_roll'&&ud.currentClip!=='roll'&&ud.currentClip!=='dash'){
-            Object.values(ud.clips).forEach(a=>a.fadeOut(0.08));
-            rollClip.reset().setEffectiveWeight(1).setLoop(THREE.LoopOnce,1);
+          // Try any roll-like clip — check all available names
+          const rollClip=ud.clips['dive_roll']||ud.clips['roll']||ud.clips['dash']||ud.clips['dive']
+            ||ud.clips['strafe_roll']||ud.clips['dodge'];
+          if(rollClip){
+            const rollName=Object.keys(ud.clips).find(k=>ud.clips[k]===rollClip)||'roll';
+            Object.values(ud.clips).forEach(a=>a.fadeOut(0.05));
+            rollClip.reset();
+            rollClip.setEffectiveWeight(1);
+            rollClip.setEffectiveTimeScale(1.5); // slightly faster for snappiness
+            rollClip.setLoop(THREE.LoopOnce,1);
             rollClip.clampWhenFinished=true;
-            rollClip.fadeIn(0.08).play();
-            ud.currentClip=rollClip._clip?.name||'roll';
-            // Auto-return to idle after roll completes
-            const rollDur=(rollClip._clip?.duration||0.5)*1000;
+            rollClip.fadeIn(0.05).play();
+            ud.currentClip=rollName;
+            // Auto-return to idle/run after roll
+            const rollDur=((rollClip._clip?.duration||0.4)/1.5)*1000;
             setTimeout(()=>{
-              if(!player||ud.currentClip!=='roll'&&ud.currentClip!=='dive_roll'&&ud.currentClip!=='dash')return;
+              if(!player||!ud.clips)return;
               const back=ud.clips['idle']||Object.values(ud.clips)[0];
-              if(back){ Object.values(ud.clips).forEach(a=>a.fadeOut(0.15)); back.reset().setEffectiveWeight(1).fadeIn(0.15).play(); ud.currentClip='idle'; }
+              if(back&&back!==rollClip){
+                Object.values(ud.clips).forEach(a=>a.fadeOut(0.12));
+                if(!back.isRunning()) back.reset();
+                back.setEffectiveWeight(1).setEffectiveTimeScale(1).fadeIn(0.12).play();
+                ud.currentClip='idle';
+              }
             },rollDur);
+          } else {
+            // No roll clip exists yet — log available clips to help find the right name
+            if(!ud._loggedClips){
+              console.log('[Robot Wars] Available clips:', Object.keys(ud.clips).join(', '));
+              ud._loggedClips=true;
+            }
           }
         }
 
@@ -6969,17 +7269,13 @@ function loop(ts){ requestAnimationFrame(loop);
       const flickActive=player&&player._flickCooldown>0;
       if(flickActive&&player) player._flickCooldown--;
 
-      if(IS_TOUCH&&stickAim&&!grenadeActive){
+      if(IS_TOUCH&&stickAim&&!grenadeActive&&!jR._holdEnteredAimMode){
         // Right stick = twin-stick aim + fire primary weapon
+        // Light push (<0.6): aim only; Full push (>0.6): aim + fire
         const ws=rotInput(shootIn.x,shootIn.y);
         avx=ws.x; avz=ws.z; aiming=true;
-        firing=!flickActive; // hold stick = fire
-        // Camera yaw softly follows aim direction
-        if(player){
-          const desired=-player.aim-Math.PI/2;
-          let diff=((desired-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
-          CAM.tyaw+=diff*0.04;
-        }
+        const stickMag=Math.hypot(shootIn.x,shootIn.y);
+        firing=stickMag>0.6&&!flickActive;
       }
       if(IS_TOUCH&&grenadeActive&&stickAim){
         // Bomb armed: right stick moves crosshair, no shooting
@@ -7002,6 +7298,27 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.multT>0){GS.multT--;if(GS.multT===0&&GS.mult>1)GS.mult--;}
       if(GS.streakT>0){GS.streakT--;if(GS.streakT<=0)GS.streak=0;}
 
+      // ── DESKTOP BOMB HOLD-AIM MODE ──
+      // After holding right-click for 300ms with bomb armed, zoom to close third-person
+      if(!IS_TOUCH&&mouse._rightHeld&&player&&player.bombArmed){
+        const held=performance.now()-(mouse._rightHoldStart||0);
+        if(held>300&&!mouse._bombAimMode){
+          mouse._bombAimMode=true;
+          mouse._savedCamDist=CAM.dist;
+          mouse._savedCamHeight=CAM.height;
+          // Zoom in to close over-shoulder
+          CAM.dist=90; CAM.height=55;
+          announce('BOMB AIM MODE — RELEASE TO THROW','#ff8800');
+        }
+        if(mouse._bombAimMode){
+          // Show crosshair at where camera is looking
+          const dir=screenToPlaneDir(mouse.px,mouse.py,player.wx,player.wz);
+          const crossDist=150;
+          if(player) player._showAimer(player.wx+dir.x*crossDist, player.wz+dir.z*crossDist,1,0);
+        }
+      }
+      if(!IS_TOUCH&&!mouse._rightHeld&&mouse._bombAimMode){ mouse._bombAimMode=false; }
+
       const od=GS.odActive>0;
       // Hover: hold right stick airborne = thrust up (burns boost fuel)
       // (hover removed — tap-burst system now in jR.onTap)
@@ -7019,6 +7336,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===0) updatePuzzleLevel(dt);
       if(GS.zone===-1) updateTutorial(dt);
       player.update(mvx,mvz,avx,avz,dt,firing,od,aiming); player.draw(od);
+      if(player) player.updateShield(dt);
       if(player) player._lastFiring=firing||player._secFireActive||false;
       // Subtle ground interaction — ship's presence slightly depresses nearby nodes
       const pmag=Math.hypot(player.vx,player.vz);
