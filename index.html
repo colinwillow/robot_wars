@@ -554,7 +554,7 @@ const CAM={ yaw:0, tyaw:0, pitch:0, tpitch:0, dist:230, height:200, trauma:0,
 function addTrauma(t){ CAM.trauma=clamp(CAM.trauma+t,0,1); }
 function punchZoom(z){ CAM.tzoom=z; }
 function updateCamera(dt){
-  CAM.yaw=lerp(CAM.yaw,CAM.tyaw,0.028);
+  CAM.yaw=lerp(CAM.yaw,CAM.tyaw,0.045);
   CAM.zoom=lerp(CAM.zoom,CAM.tzoom,0.18); CAM.tzoom=lerp(CAM.tzoom,0,0.06);
   CAM.focus.lerp(CAM.tfocus,0.18);
 
@@ -576,7 +576,7 @@ function updateCamera(dt){
     const rightZ=-Math.sin(CAM.yaw)*18;
     camera.position.set(
       playerX + backX + rightX,
-      playerY + 80,   // 80 units above player center — well above head
+      playerY + 55,   // lowered from 80
       playerZ + backZ + rightZ
     );
     // Look toward aim point far in front of player
@@ -5110,7 +5110,7 @@ class Player{
     const sm=Math.hypot(stickX,stickZ);
     if(!this._aimerX){this._aimerX=this.wx;this._aimerZ=this.wz;}
     if(sm>0.08){
-      // Crosshair moves radially from player — max throw ~200 units
+      // Stick pushed — move crosshair
       const throwDist=60+sm*160;
       const targetX=this.wx+stickX*throwDist;
       const targetZ=this.wz+stickZ*throwDist;
@@ -5120,23 +5120,9 @@ class Player{
       this._pendingThrowX=stickX; this._pendingThrowZ=stickZ;
       this._stickWasPushed=true;
     } else {
-      if(this._stickWasPushed&&this._pendingThrowX!==undefined){
-        // Stick released — throw to crosshair position
-        const dx=this._aimerX-this.wx, dz=this._aimerZ-this.wz;
-        const dist=Math.hypot(dx,dz)||1;
-        this._throwBomb(dx/dist,dz/dist);
-        // Disarm bomb button visually
-        const bb=document.getElementById('btn-bomb-arm');
-        if(bb) bb.classList.remove('armed');
-        this._stickWasPushed=false; this._pendingThrowX=0; this._pendingThrowZ=0;
-        this._aimerX=undefined; this._aimerZ=undefined;
-        return;
-      }
-      // No stick input — show crosshair at player position
-      this._aimerX=lerp(this._aimerX||this.wx,this.wx,0.14);
-      this._aimerZ=lerp(this._aimerZ||this.wz,this.wz,0.14);
-      this._showAimer(this._aimerX,this._aimerZ,0,0);
-      this._stickWasPushed=false;
+      // Stick at center — keep crosshair where it was (don't throw, don't reset)
+      // Throw only happens on finger lift (jR._end) or flick
+      this._showAimer(this._aimerX||this.wx,this._aimerZ||this.wz,0,0);
     }
     if(this.bombArmed&&this._bombMesh){
       const pulse=1+0.25*Math.sin(performance.now()*0.012);
@@ -5313,7 +5299,7 @@ class Player{
       this._shieldMesh3D.visible=this.shieldActive;
       if(this.shieldActive){
         // Position shield in front of player at chest height, dome facing aim direction
-        const shieldDist=14;
+        const shieldDist=28;
         const sx=this.wx+Math.cos(this.aim)*shieldDist;
         const sz=this.wz+Math.sin(this.aim)*shieldDist;
         const chestY=28+this.py; // chest height above ground
@@ -5323,7 +5309,7 @@ class Player{
         // We want dome (opening toward -Z) to face AWAY from player = toward enemies = aim direction
         // So we need local -Z = aim direction → rotation.y = aim (not -aim+π)
         // "90 degrees too far CCW" from before → try rotation.y = -this.aim - Math.PI/2
-        this._shieldMesh3D.rotation.y = -this.aim - Math.PI/2;
+        this._shieldMesh3D.rotation.y = -this.aim + Math.PI/2;
         // Flash on hit
         if(this._shieldHitFlash>0){
           this._shieldHitFlash--;
@@ -6874,6 +6860,11 @@ window.addEventListener('keydown',e=>{
     });
     ps.ring(player.wx,player.wz,[1,0.6,0.1],10,60);
   }
+  if(e.code==='Tab'&&GS.state==='playing'&&player){
+    e.preventDefault();
+    if(player.shieldActive) player.deactivateShield();
+    else player.activateShield();
+  }
   if(e.code==='KeyQ'){CAM.tyaw-=Math.PI/10;}
   if(e.code==='KeyR'){CAM.tyaw+=Math.PI/10;}
   if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault(); });
@@ -7168,7 +7159,7 @@ jL.onTap=()=>{
   jR._end=function(e){
     if(jR.id!==null){
       for(const t of e.changedTouches)if(t.identifier===jR.id){
-        if(player&&GS.state==='playing'&&player.bombArmed){
+        if(player&&GS.state==='playing'&&player.bombArmed&&!CAM.aimMode){
           const hist=jR._swipeHist;
           if(hist.length>=2){
             const newest=hist[hist.length-1], oldest=hist[0];
@@ -7177,20 +7168,29 @@ jL.onTap=()=>{
             const svy=(newest.y-oldest.y)/elapsed;
             const spd=Math.hypot(svx,svy);
             if(spd>0.35&&elapsed<200){
-              // Fast flick = throw bomb immediately in that direction
+              // Fast flick — throw in flick direction immediately
               const cy=Math.cos(CAM.yaw), sy=Math.sin(CAM.yaw);
               const wx=svx*cy+svy*sy, wz=-svx*sy+svy*cy;
               const len=Math.hypot(wx,wz)||1;
               player._throwBomb(wx/len,wz/len);
               const bb=document.getElementById('btn-bomb-arm');
               if(bb) bb.classList.remove('armed');
-              jR._tapMoved=true; // suppress onTap drop
+              jR._tapMoved=true;
+            } else if(player._stickWasPushed){
+              // Slow drag release — throw to wherever crosshair is
+              const dx=(player._aimerX||player.wx)-player.wx;
+              const dz=(player._aimerZ||player.wz)-player.wz;
+              const dist=Math.hypot(dx,dz)||1;
+              if(dist>5) player._throwBomb(dx/dist,dz/dist);
+              else player._throwBomb(0,0); // no movement = drop below
+              const bb=document.getElementById('btn-bomb-arm');
+              if(bb) bb.classList.remove('armed');
+              player._stickWasPushed=false;
+              jR._tapMoved=true; // suppress onTap
             }
-            // Slow drag release: handled by updateBomb (stick-was-pushed path)
           }
         }
-        // No flick action when bomb not armed — primary fire is hold-not-flick
-        window._lastRFlickTime=0; // clear dual-flick flag
+        window._lastRFlickTime=0;
         break;
       }
     }
@@ -7285,14 +7285,19 @@ function loop(ts){ requestAnimationFrame(loop);
     }
 
     // ── 3D BOMB AIM MODE — right stick held STILL for 400ms while bomb armed ──
-    // Any stick movement resets the timer (movement = crosshair mode, not aim mode)
+    // Use swipe history to measure finger movement, not shootIn (which has dead zone issues)
     if(IS_TOUCH&&jR._holdingForJet&&player&&player.bombArmed&&!CAM.aimMode){
-      const stickMag=Math.hypot(shootIn.x,shootIn.y);
-      if(stickMag>0.15){
-        // Stick moved — reset hold timer, stay in normal crosshair mode
+      const hist=jR._swipeHist||[];
+      // Calculate total displacement from where finger first touched
+      let maxDisp=0;
+      if(hist.length>=2){
+        const first=hist[0];
+        for(const pt of hist) maxDisp=Math.max(maxDisp,Math.hypot(pt.x-first.x,pt.y-first.y));
+      }
+      if(maxDisp>20){
+        // Finger moved significantly — reset timer, stay in crosshair mode
         jR._holdStartTime=performance.now();
       } else {
-        // Stick still — check if held long enough
         const held=performance.now()-(jR._holdStartTime||0);
         if(held>400){
           enterAimMode();
