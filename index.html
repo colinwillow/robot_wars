@@ -3,10 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
-<title>GRID WARS // DIMENSION</title>
+<title>ROBOT WARS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Barlow+Condensed:wght@400;600;700;900&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;background:#000;overflow:hidden;font-family:'Courier New',monospace;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+html,body{width:100%;height:100%;background:#000;overflow:hidden;font-family:'Rajdhani','Barlow Condensed','Arial Narrow',sans-serif;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
 #app{position:absolute;inset:0}
 canvas{display:block}
 #ui{position:absolute;inset:0;pointer-events:none;z-index:10}
@@ -137,13 +140,13 @@ canvas{display:block}
 #btn-dash{bottom:max(env(safe-area-inset-bottom),150px);left:30px;border:2px solid #00d9ff88;color:#66e6ff;box-shadow:0 0 14px #00d9ff44;text-shadow:0 0 8px #00d9ff}
 .action-btn:active{transform:scale(.9)}
 /* Cycle weapon button — above left stick */
-#btn-cycle{position:absolute;width:56px;height:56px;border-radius:12px;display:none;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+#btn-cycle{position:absolute;width:48px;height:48px;border-radius:10px;display:none;flex-direction:column;align-items:center;justify-content:center;gap:2px;
   pointer-events:all;z-index:16;font-family:inherit;background:rgba(0,0,0,0.4);
   border:1.5px solid #00ffc888;color:#00ffc8;box-shadow:0 0 12px #00ffc833;
   -webkit-tap-highlight-color:transparent;cursor:pointer}
 #btn-cycle:active{transform:scale(.92);background:rgba(0,255,200,0.12)}
 #btn-cycle svg{display:block}
-#btn-cycle .cycle-label{font-size:7px;letter-spacing:1.5px;text-transform:uppercase;opacity:0.8}
+#btn-cycle .cycle-label{font-size:6px;letter-spacing:1.5px;text-transform:uppercase;opacity:0.8}
 
 #health-bar{display:flex;gap:5px;margin-top:4px}
 .hp-seg{width:28px;height:6px;border:1px solid #00ffc855;background:#00ffc822;transition:all .15s;clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%)}
@@ -244,7 +247,7 @@ canvas{display:block}
 </div>
 
 <div id="overlay">
-  <div class="title-wrap" style="margin-top:8px"><h1>Grid Wars</h1><div class="title-sub">Dimension</div></div>
+  <div class="title-wrap" style="margin-top:8px"><h1>Robot Wars</h1><div class="title-sub">Dimension</div></div>
   <div class="subtitle">3D · Campaign Mode</div>
   <div id="level-select">
     <div class="ls-title">▸ Select Level ◂</div>
@@ -5060,16 +5063,26 @@ class Player{
       const speedMult=(this._speedBoost>0)?1.7:1;
       if(this._speedBoost>0) this._speedBoost--;
 
-      // Dash ramp — accelerates over ~10 frames with ease-in curve
+      // ── DASH IMPULSE — directly set velocity, bypass eased input for dashDuration frames ──
       if(this._dashRamp>0&&this._dashDir){
-        const t=1-(this._dashRamp/10); // 0→1 as ramp progresses
-        const ease=t*t*(3-2*t); // smoothstep — slow start, fast middle, taper
-        const boost=ease*this._dashPeak;
-        this.vx=lerp(this.vx,this._dashDir[0]*this._dashPeak,ease*0.35);
-        this.vz=lerp(this.vz,this._dashDir[1]*this._dashPeak,ease*0.35);
+        // Direct velocity set — no lerp fighting it
+        const frac=this._dashRamp/12; // 1→0 as dash progresses
+        const power=this._dashPeak*(0.6+frac*0.4); // sustain at 60–100% peak
+        this.vx=this._dashDir[0]*power;
+        this.vz=this._dashDir[1]*power;
+        this.inX=this._dashDir[0]; // align eased input so it doesn't fight
+        this.inZ=this._dashDir[1];
         this._dashRamp--;
-        if(this._dashRamp<=0) this._dashDir=null;
-      }
+        if(this._dashRamp<=0){ this._dashDir=null; }
+        // Skip the normal eased velocity update below while dashing
+        let nx=this.wx+this.vx*dt, nz=this.wz+this.vz*dt;
+        const _zc2=zoneCenter(GS.zone);
+        const edge2=ARENA_R-12, dist2=Math.hypot(nx-_zc2.x,nz-_zc2.z);
+        if(dist2>edge2){ const nrmX=(nx-_zc2.x)/dist2,nrmZ=(nz-_zc2.z)/dist2; nx=_zc2.x+nrmX*edge2; nz=_zc2.z+nrmZ*edge2; grid.shock(nx,nz,1); }
+        this.wx=nx; this.wz=nz;
+        // Dash trail sparks
+        if(Math.random()<0.7) ps.spark(this.wx-this._dashDir[0]*rand(4,18),this.wz-this._dashDir[1]*rand(4,18),[0,0.9,1]);
+      } else {
 
       const top=MOVE.topSpeed*speedMult*(od?1.25:1);
       const tvx=this.inX*top, tvz=this.inZ*top;        // desired velocity
@@ -5092,7 +5105,8 @@ class Player{
       this.wx=nx;this.wz=nz;
       // (no movement dimple — it was suppressing the floor under the ship and
       //  cancelling ramp launches)
-    }
+      } // end else (not dashing via _dashRamp)
+    } // end outer else (not hard-dashing via this.dashing)
 
     const mvMagnitude=Math.hypot(rawX,rawZ);
     if(mvMagnitude>0.15){
@@ -5106,21 +5120,21 @@ class Player{
     const al=Math.hypot(avx,avz);
     if(al>0.15) this.aim=Math.atan2(avz,avx);
 
-    // ── CAMERA — right stick orbits, full push also shoots ──
-    // Light push (0.15-0.55): look/camera only, no shooting
-    // Full push (>0.55): aim + shoot (original twin-stick behavior)
-    const LOOK_THRESHOLD=0.15;
-    const SHOOT_THRESHOLD=0.55;
-    if(al>LOOK_THRESHOLD){
-      const desired=-this.aim-Math.PI/2;
-      let diff=((desired-CAM.yaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
-      if(Math.abs(diff)>0.35){
-        CAM.tyaw=CAM.tyaw+diff*0.06; // outside deadzone: drift toward target
+    // ── CAMERA — right stick orbits ──
+    // On mobile: main loop drives CAM.tyaw directly from shootIn.x — skip this block
+    // On desktop: right stick/mouse aim sets camera yaw smoothly
+    if(!IS_TOUCH){
+      if(al>0.15){
+        const desired=-this.aim-Math.PI/2;
+        let diff=((desired-CAM.yaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
+        if(Math.abs(diff)>0.35){
+          CAM.tyaw=CAM.tyaw+diff*0.06;
+        } else {
+          CAM.tyaw=lerp(CAM.tyaw,CAM.yaw,0.20);
+        }
       } else {
-        CAM.tyaw=lerp(CAM.tyaw,CAM.yaw,0.20); // inside deadzone: snap to rest fast
+        CAM.tyaw=lerp(CAM.tyaw,CAM.yaw,0.25);
       }
-    } else {
-      CAM.tyaw=lerp(CAM.tyaw,CAM.yaw,0.25); // no stick: stop immediately
     }
 
     this.fireT++;
@@ -5710,9 +5724,9 @@ function startGame(levelIdx){
       // Position: same left as joystick-left center, above it
       const jlEl=document.getElementById('joystick-left');
       const jlRect=jlEl.getBoundingClientRect();
-      const btnW=56, btnH=56;
+      const btnW=48, btnH=48;
       cycleBtn.style.left=(jlRect.left+jlRect.width/2-btnW/2)+'px';
-      cycleBtn.style.bottom=(window.innerHeight-jlRect.top+12)+'px';
+      cycleBtn.style.bottom=(window.innerHeight-jlRect.top+28)+'px'; // 28px gap instead of 12
       cycleBtn.addEventListener('touchstart',e=>{
         e.preventDefault();
         if(!player||GS.state!=='playing')return;
@@ -6167,7 +6181,8 @@ function showGameOver(){ Audio.stopMusic();
       <div class="lb-title">▸ High Scores ◂</div>
       <div id="lb-list"></div>
     </div>
-    <button class="start-btn" id="start-btn" style="margin-top:24px;margin-bottom:8px">RE-ENGAGE</button>`;
+    <button class="start-btn" id="start-btn" style="margin-top:24px;margin-bottom:8px">RE-ENGAGE</button>
+    <button class="start-btn" id="home-btn" style="margin-bottom:8px;border-color:#ffffff55;color:#ffffffaa;box-shadow:none">HOME SCREEN</button>`;
   ov.style.display='flex';
   ov.scrollTop=0;
 
@@ -6220,6 +6235,10 @@ function showGameOver(){ Audio.stopMusic();
   document.getElementById('start-btn').addEventListener('click',()=>{
     ov.style.display='none';
     startGame(GS.zone); // restart at same level
+  });
+  document.getElementById('home-btn').addEventListener('click',()=>{
+    // Go back to home screen — cleanest way is reload so everything resets
+    window.location.reload();
   });
   ['joystick-left','joystick-right','boss-bar'].forEach(id=>{ const el=document.getElementById(id); if(el)el.style.display='none'; });
 }
@@ -6514,7 +6533,7 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
           const svx=(newest.x-oldest.x)/(elapsed||1);
           const svy=(newest.y-oldest.y)/(elapsed||1);
           const spd=Math.hypot(svx,svy);
-          if(spd>0.5&&elapsed<120){
+          if(spd>0.3&&elapsed<220){
             const cy=Math.cos(CAM.yaw), sy=Math.sin(CAM.yaw);
             const wx=svx*cy+svy*sy, wz=-svx*sy+svy*cy;
             const len=Math.hypot(wx,wz)||1;
@@ -6545,18 +6564,20 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
               Audio.blip(600,0.15,'sine',0.1,1800);
               announce('DASH LAUNCH!','#ffaa00');
             } else {
-              // ── REGULAR DASH (more intense) ──
-              const dashPower=MOVE.topSpeed*4.2; // was 3.4
+              // ── REGULAR DASH ──
+              const dashPower=MOVE.topSpeed*6.5; // strong enough to clearly feel
               player._dashDir=[dx,dz];
-              player._dashRamp=12; // was 10
+              player._dashRamp=14;
               player._dashPeak=dashPower;
               player._diveRollDir=[dx,dz]; // signal for animation system to play roll
-              ps.ring(player.wx,player.wz,[0,0.85,1],16,120);
-              ps.burst(player.wx,player.wz,[0,0.85,1],10,90);
-              for(let i=0;i<5;i++) ps.spark(player.wx+dx*rand(5,30),player.wz+dz*rand(5,30),[0,0.9,1]);
-              grid.push(player.wx,player.wz,-3,65);
-              addTrauma(0.03);
-              Audio.blip(440,0.12,'sine',0.12,1100);
+              player.inv=Math.max(player.inv,20); // i-frames during dash
+              ps.ring(player.wx,player.wz,[0,0.85,1],22,150);
+              ps.burst(player.wx,player.wz,[0,0.85,1],14,110);
+              for(let i=0;i<8;i++) ps.spark(player.wx+dx*rand(5,40),player.wz+dz*rand(5,40),[0,0.9,1]);
+              grid.push(player.wx,player.wz,-4,70);
+              addTrauma(0.05);
+              Audio.blip(380,0.18,'sine',0.18,1400);
+              Audio.blip(640,0.10,'square',0.08,1800);
             }
             jL._tapMoved=true;
           }
@@ -6569,18 +6590,11 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
 }
 const jR=new Joystick(document.getElementById('joystick-right'),document.getElementById('joy-knob-right'));jR.setOutput(shootIn);
 
-// LEFT stick tap = JUMP (grounded) — weapon cycling moved to dedicated CYCLE button
-// Airborne left-tap drops bomb straight down if bomb is selected
+// LEFT stick tap = drop bomb straight down if airborne with bomb selected
+// (Jump = right stick tap. Cycle = dedicated CYCLE button)
 jL.onTap=()=>{
   if(!player||GS.state!=='playing')return;
-  if(player.py<=8||player._onPlatform){
-    // Grounded: jump
-    player.pvy=180;
-    player._onPlatform=false;
-    Audio.blip(440,0.4,'sine',0.12,520);
-    ps.ring(player.wx,player.wz,[0,0.85,1],12,90);
-  } else if(player.secWeapon==='bomb'){
-    // Airborne + bomb: drop it
+  if(player.py>8&&player.secWeapon==='bomb'){
     player.dropSecWeaponDown();
   }
 };
@@ -6848,12 +6862,12 @@ function loop(ts){ requestAnimationFrame(loop);
       const flickActive=player&&player._flickCooldown>0;
       if(flickActive&&player) player._flickCooldown--;
       if(IS_TOUCH&&stickAim&&!flickActive){
-        // Right stick = orbit camera
-        CAM.tyaw+=shootIn.x*dt*2.5;
-        // Also update aim direction so robot faces camera direction
-        if(player) player.aim=-CAM.tyaw+Math.PI/2;
+        // Right stick = orbit camera. shootIn.x right = positive, rotating right = decreasing tyaw
+        CAM.tyaw -= shootIn.x * dt * 2.2;
+        // Also update aim direction so robot faces camera forward direction
+        if(player) player.aim = -CAM.tyaw + Math.PI/2;
         aiming=true;
-        avx=Math.cos(-CAM.tyaw); avz=Math.sin(-CAM.tyaw); // face camera forward
+        avx=Math.cos(-CAM.tyaw); avz=Math.sin(-CAM.tyaw);
       }
       if(IS_TOUCH&&flickActive){
         const a=rotInput(shootIn.x,shootIn.y); avx=a.x; avz=a.z; aiming=true;
