@@ -5072,17 +5072,24 @@ class Player{
   _throwBomb(dirX,dirZ){
     if(!this.bombArmed)return;
     const isDrop=(dirX===0&&dirZ===0);
-    // Scale speed by how far the crosshair is — min 120, max 420
     const crossDist=Math.hypot(
       (this._aimerX||this.wx)-this.wx,
       (this._aimerZ||this.wz)-this.wz
     );
-    const spd=isDrop?0:clamp(120+crossDist*1.4, 120, 420);
-    const vx=dirX*spd + this.vx*0.3;
-    const vz=dirZ*spd + this.vz*0.3;
-    const fuse=isDrop?1.2:clamp(0.8+crossDist*0.006, 1.0, 2.5);
-    const launchVY=isDrop?-30:clamp(60+crossDist*0.5, 60, 200);
-    const launchY=9+this.py+28; // always launch from above head
+    const launchVY=isDrop?-30:clamp(60+crossDist*0.5,60,160);
+    const launchY=9+this.py+28;
+    const GRAV=320;
+    // Compute horizontal speed to land exactly at crosshair distance
+    let spd=120;
+    if(!isDrop&&crossDist>1){
+      const a2=0.5*GRAV, b2=-launchVY, c2=-(launchY-9);
+      const disc=b2*b2-4*a2*c2;
+      const totalTime=disc>=0?(-b2+Math.sqrt(disc))/(2*a2):1.2;
+      spd=clamp(crossDist/totalTime, 60, 500);
+    }
+    const vx=dirX*spd+this.vx*0.3;
+    const vz=dirZ*spd+this.vz*0.3;
+    const fuse=isDrop?1.2:clamp(0.8+crossDist*0.006,1.0,2.5);
     const b=new DropBomb(
       this.wx+(isDrop?0:dirX*14),
       this.wz+(isDrop?0:dirZ*14),
@@ -5175,17 +5182,29 @@ class Player{
     this._crosshairLines.scale.setScalar(pulse);
 
     // ── Simulate trajectory and position dots ──
-    if(this._trajDots&&this._pendingThrowX!==undefined){
-      const crossDist=Math.hypot(ax-this.wx, az-this.wz);
-      const spd=clamp(120+crossDist*1.4,120,420);
-      const launchVY=clamp(60+crossDist*0.5,60,200);
-      let sx=this.wx+(this._pendingThrowX||0)*14;
-      let sz=this.wz+(this._pendingThrowZ||0)*14;
-      let sy=9+this.py+28;
-      let svx=(this._pendingThrowX||0)*spd;
-      let svz=(this._pendingThrowZ||0)*spd;
+    // Always use the actual throw direction (ax,az) → not _pendingThrowX which may be stale
+    if(this._trajDots){
+      const crossDist=Math.hypot(ax-this.wx, az-this.wz)||0.01;
+      const dirX=(ax-this.wx)/crossDist;
+      const dirZ=(az-this.wz)/crossDist;
+      const launchVY=clamp(60+crossDist*0.5,60,160); // cap lower so arc stays reasonable
+      const launchY=9+this.py+28;
+      const GRAV=320;
+      // Time for bomb to reach ground from launchY:  launchY + launchVY*t - 0.5*GRAV*t² = 9
+      // 0.5*GRAV*t² - launchVY*t - (launchY-9) = 0
+      const a2=0.5*GRAV, b2=-launchVY, c2=-(launchY-9);
+      const disc=b2*b2-4*a2*c2;
+      const totalTime=disc>=0?(-b2+Math.sqrt(disc))/(2*a2):1.2;
+      // Speed to travel crossDist horizontally in totalTime
+      const spd=crossDist/totalTime;
+
+      let sx=this.wx+dirX*14;
+      let sz=this.wz+dirZ*14;
+      let sy=launchY;
+      let svx=dirX*spd+this.vx*0.3;
+      let svz=dirZ*spd+this.vz*0.3;
       let svy=launchVY;
-      const GRAV=320, DT=0.045;
+      const DT=0.045;
       let bounces=0;
       for(let i=0;i<this._trajDots.length;i++){
         svy-=GRAV*DT; sx+=svx*DT; sz+=svz*DT; sy+=svy*DT;
@@ -5193,8 +5212,7 @@ class Player{
           sy=9; svy=Math.abs(svy)*0.45; svx*=0.7; svz*=0.7; bounces++;
         } else if(sy<=9){ sy=9; svy=0; }
         const frac=1-(i/this._trajDots.length)*0.7;
-        // Every other dot for "dotted" look
-        const visible=(i%2===0);
+        const visible=(i%2===0)&&crossDist>5;
         this._trajDots[i].position.set(sx,sy,sz);
         this._trajDots[i].material.opacity=visible?frac*0.65:0;
         const t=i/this._trajDots.length;
@@ -6902,7 +6920,18 @@ window.addEventListener('mousemove',e=>{ if(IS_TOUCH)return;
   mouse._lastMX=e.clientX; mouse._lastMY=e.clientY;
 });
 window.addEventListener('mousedown',e=>{ if(IS_TOUCH)return;
-  if(e.button===0){mouse.has=true; mouse.down=true;}
+  if(e.button===0){
+    mouse.has=true;
+    // Left-click while bomb armed = cancel without firing
+    if(player&&player.bombArmed&&GS.state==='playing'){
+      player._disarmBomb();
+      exitAimMode();
+      announce('BOMB STOWED','#ffffff88');
+      // mouse.down stays false so we don't shoot
+    } else {
+      mouse.down=true;
+    }
+  }
   else if(e.button===2&&GS.state==='playing'&&player){
     e.preventDefault();
     if(!player.bombArmed){
