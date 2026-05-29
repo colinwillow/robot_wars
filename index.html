@@ -147,6 +147,15 @@ canvas{display:block}
 #btn-cycle:active{transform:scale(.92);background:rgba(0,255,200,0.12)}
 #btn-cycle svg{display:block}
 #btn-cycle .cycle-label{font-size:6px;letter-spacing:1.5px;text-transform:uppercase;opacity:0.8}
+/* Bomb arm button — above right stick */
+#btn-bomb-arm{position:absolute;width:48px;height:48px;border-radius:10px;display:none;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  pointer-events:all;z-index:16;font-family:inherit;background:rgba(0,0,0,0.4);
+  border:1.5px solid #ff333388;color:#ff6666;box-shadow:0 0 12px #ff333333;
+  -webkit-tap-highlight-color:transparent;cursor:pointer}
+#btn-bomb-arm.armed{border-color:#ff3333;box-shadow:0 0 18px #ff333366;background:rgba(180,0,0,0.25);animation:bombpulse 0.6s infinite}
+@keyframes bombpulse{0%,100%{box-shadow:0 0 12px #ff333366}50%{box-shadow:0 0 24px #ff3333cc}}
+#btn-bomb-arm:active{transform:scale(.92)}
+#btn-bomb-arm svg{display:block}
 
 #health-bar{display:flex;gap:5px;margin-top:4px}
 .hp-seg{width:28px;height:6px;border:1px solid #00ffc855;background:#00ffc822;transition:all .15s;clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%)}
@@ -262,6 +271,22 @@ canvas{display:block}
 
 <div id="joystick-left"><div class="joy-knob" id="joy-knob-left"></div></div>
 <div id="joystick-right"><div class="joy-knob" id="joy-knob-right"></div></div>
+
+<!-- BOMB button — positioned above right stick dynamically by JS -->
+<button id="btn-bomb-arm" aria-label="Arm Bomb">
+  <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="12" cy="17" r="8" fill="#ff3333" opacity="0.9"/>
+    <circle cx="12" cy="17" r="8" stroke="#ff6666" stroke-width="1" opacity="0.5"/>
+    <circle cx="9" cy="14" r="2.5" fill="white" opacity="0.15"/>
+    <line x1="9" y1="13" x2="15" y2="19" stroke="white" stroke-width="1.5" opacity="0.4"/>
+    <line x1="15" y1="13" x2="9" y2="19" stroke="white" stroke-width="1.5" opacity="0.4"/>
+    <path d="M14 10 Q17 6 21 5" stroke="#ffaa00" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+    <circle cx="21" cy="5" r="2" fill="#ffe600" opacity="0.9">
+      <animate attributeName="opacity" values="0.4;1;0.4" dur="0.5s" repeatCount="indefinite"/>
+    </circle>
+  </svg>
+  <span style="font-size:6px;letter-spacing:1.5px;text-transform:uppercase;opacity:0.8">BOMB</span>
+</button>
 
 <!-- CYCLE WEAPON button — positioned above left stick dynamically by JS -->
 <button id="btn-cycle" aria-label="Cycle Weapon">
@@ -1333,10 +1358,18 @@ function _applyRobotModel(player, gltf){
   gltf.animations.forEach(clip=>{
     if(clip.name==='CINEMA_4D_Main') return; // skip C4D default take
     const action=mixer.clipAction(clip);
-    action.setLoop(THREE.LoopRepeat,Infinity);
+    // Looping clips: LoopRepeat at full speed. One-shot clips: LoopOnce.
+    const isOneShot=['landing','dive_roll','roll','dash','dive'].some(n=>clip.name.includes(n));
+    if(isOneShot){
+      action.setLoop(THREE.LoopOnce,1);
+      action.clampWhenFinished=true;
+    } else {
+      action.setLoop(THREE.LoopRepeat,Infinity);
+      action.setEffectiveTimeScale(1.0);
+    }
     action.stop();
     clips[clip.name]=action;
-    console.log('Loaded clip:', clip.name);
+    console.log('Loaded clip:', clip.name, isOneShot?'(one-shot)':'(loop)');
   });
   robotScene.userData.clips=clips;
   robotScene.userData.currentClip='idle';
@@ -4820,8 +4853,9 @@ class Player{
     if(this._arrowIndicator){ scene.remove(this._arrowIndicator); this._arrowIndicator=null; }
     this.hovering=false;
     this._speedBoost=0; this._flickCooldown=0; this._dashDir=null; this._dashRamp=0; this._dashPeak=0;
-    this.secWeapon='bullets';
-    this.secWeapons=['bullets','missile','bomb'];
+    this.primaryWeapon='bullets'; // cycles between 'bullets' and 'rockets'
+    this.secWeapon='bullets'; // keep for compat — mirrors primaryWeapon
+    this.secWeapons=['bullets','rockets']; // legacy compat ref
     this._disarmBomb();
     this.boostFuel=100; this.boostMax=100; this.boostRecharge=0;
     this._jetting=false; // jetpack currently active
@@ -4852,19 +4886,12 @@ class Player{
   // Stick direction while armed: aimer moves to projected throw point
   // Release stick while armed: throw in that direction
   cycleWeapon(){
-    const idx=(this.secWeapons.indexOf(this.secWeapon)+1)%this.secWeapons.length;
-    this.secWeapon=this.secWeapons[idx];
+    this.primaryWeapon = this.primaryWeapon==='bullets' ? 'rockets' : 'bullets';
+    this.secWeapon = this.primaryWeapon; // keep compat
     this._disarmBomb();
-    // Flash weapon name big briefly
-    const wn=document.getElementById('weapon-name');
-    if(wn){
-      wn.style.fontSize='13px';
-      wn.style.opacity='1';
-      clearTimeout(wn._t);
-      wn._t=setTimeout(()=>{ wn.style.fontSize='9px'; },600);
-    }
     Audio.blip(660,0.08,'sine',0.12,880);
     updateWeaponHUD();
+    announce('WEAPON: '+this.primaryWeapon.toUpperCase(),'#00ffc8');
   }
 
   useSecWeapon(dx,dz){
@@ -4983,26 +5010,32 @@ class Player{
     if(!this.bombArmed)return;
     const sm=Math.hypot(stickX,stickZ);
     if(!this._aimerX){this._aimerX=this.wx;this._aimerZ=this.wz;}
-    if(sm>0.12){
-      // Low sensitivity — max throw ~160 units, lerped smoothly so it feels weighted
-      const throwDist=40+sm*120;
+    if(sm>0.08){
+      // Crosshair moves radially from player — max throw ~200 units
+      const throwDist=60+sm*160;
       const targetX=this.wx+stickX*throwDist;
       const targetZ=this.wz+stickZ*throwDist;
-      this._aimerX=lerp(this._aimerX,targetX,0.06);
-      this._aimerZ=lerp(this._aimerZ,targetZ,0.06);
+      this._aimerX=lerp(this._aimerX,targetX,0.08);
+      this._aimerZ=lerp(this._aimerZ,targetZ,0.08);
       this._showAimer(this._aimerX,this._aimerZ,sm,0);
       this._pendingThrowX=stickX; this._pendingThrowZ=stickZ;
       this._stickWasPushed=true;
     } else {
       if(this._stickWasPushed&&this._pendingThrowX!==undefined){
-        this._throwBomb(this._pendingThrowX,this._pendingThrowZ);
+        // Stick released — throw to crosshair position
+        const dx=this._aimerX-this.wx, dz=this._aimerZ-this.wz;
+        const dist=Math.hypot(dx,dz)||1;
+        this._throwBomb(dx/dist,dz/dist);
+        // Disarm bomb button visually
+        const bb=document.getElementById('btn-bomb-arm');
+        if(bb) bb.classList.remove('armed');
         this._stickWasPushed=false; this._pendingThrowX=0; this._pendingThrowZ=0;
         this._aimerX=undefined; this._aimerZ=undefined;
         return;
       }
-      // Lerp back to directly below
-      this._aimerX=lerp(this._aimerX||this.wx,this.wx,0.12);
-      this._aimerZ=lerp(this._aimerZ||this.wz,this.wz,0.12);
+      // No stick input — show crosshair at player position
+      this._aimerX=lerp(this._aimerX||this.wx,this.wx,0.14);
+      this._aimerZ=lerp(this._aimerZ||this.wz,this.wz,0.14);
       this._showAimer(this._aimerX,this._aimerZ,0,0);
       this._stickWasPushed=false;
     }
@@ -5011,18 +5044,47 @@ class Player{
       this._bombMesh.scale.setScalar(pulse);
       this._bombMesh.material.color.setHex(this._stickWasPushed?0xffe600:0xff4400);
     } else if(!this.bombArmed&&this._bombMesh){
-      // Stale mesh — clean it up
       this._disarmBomb();
     }
   }
 
   _showAimer(ax,az,charge,_unused){
-    // Aimer hidden — robot character makes it visually redundant
-    if(this._aimer) this._aimer.visible=false;
+    // 3D crosshair ring on the ground plane for bomb aiming
+    if(!this._crosshair){
+      const geo=new THREE.RingGeometry(10,13,32);
+      const mat=new THREE.MeshBasicMaterial({color:0xff4400,transparent:true,opacity:0.85,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false});
+      this._crosshair=new THREE.Mesh(geo,mat);
+      this._crosshair.rotation.x=-Math.PI/2;
+      scene.add(this._crosshair);
+      // Inner dot
+      const dotGeo=new THREE.CircleGeometry(3,16);
+      const dotMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false});
+      this._crosshairDot=new THREE.Mesh(dotGeo,dotMat);
+      this._crosshairDot.rotation.x=-Math.PI/2;
+      scene.add(this._crosshairDot);
+      // Cross lines
+      const lpts=[new THREE.Vector3(-18,0,0),new THREE.Vector3(-11,0,0),new THREE.Vector3(11,0,0),new THREE.Vector3(18,0,0),
+                  new THREE.Vector3(0,0,-18),new THREE.Vector3(0,0,-11),new THREE.Vector3(0,0,11),new THREE.Vector3(0,0,18)];
+      const lGeo=new THREE.BufferGeometry().setFromPoints(lpts);
+      this._crosshairLines=new THREE.LineSegments(lGeo,new THREE.LineBasicMaterial({color:0xff4400,transparent:true,opacity:0.6,blending:THREE.AdditiveBlending,depthWrite:false}));
+      scene.add(this._crosshairLines);
+    }
+    const groundY=1.5;
+    this._crosshair.position.set(ax,groundY,az);
+    this._crosshairDot.position.set(ax,groundY+0.5,az);
+    this._crosshairLines.position.set(ax,groundY+0.5,az);
+    this._crosshair.visible=true; this._crosshairDot.visible=true; this._crosshairLines.visible=true;
+    // Pulse scale with charge
+    const pulse=1+0.15*Math.sin(performance.now()*0.008);
+    this._crosshair.scale.setScalar(pulse);
+    this._crosshairLines.scale.setScalar(pulse);
     if(this._aimerLines) this._aimerLines.visible=false;
   }
 
   _hideAimer(){
+    if(this._crosshair){ this._crosshair.visible=false; }
+    if(this._crosshairDot){ this._crosshairDot.visible=false; }
+    if(this._crosshairLines){ this._crosshairLines.visible=false; }
     if(this._aimer){ scene.remove(this._aimer); this._aimer=null; }
     if(this._aimerLines){ scene.remove(this._aimerLines); this._aimerLines=null; }
   }
@@ -5120,26 +5182,25 @@ class Player{
     const al=Math.hypot(avx,avz);
     if(al>0.15) this.aim=Math.atan2(avz,avx);
 
-    // ── CAMERA — right stick orbits ──
-    // On mobile: main loop drives CAM.tyaw directly from shootIn.x — skip this block
-    // On desktop: right stick/mouse aim sets camera yaw smoothly
-    if(!IS_TOUCH){
-      if(al>0.15){
-        const desired=-this.aim-Math.PI/2;
-        let diff=((desired-CAM.yaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
-        if(Math.abs(diff)>0.35){
-          CAM.tyaw=CAM.tyaw+diff*0.06;
-        } else {
-          CAM.tyaw=lerp(CAM.tyaw,CAM.yaw,0.20);
-        }
+    // ── CAMERA — follows aim direction on both platforms ──
+    if(al>0.15){
+      const desired=-this.aim-Math.PI/2;
+      let diff=((desired-CAM.yaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
+      if(Math.abs(diff)>0.35){
+        CAM.tyaw=CAM.tyaw+diff*0.05;
       } else {
-        CAM.tyaw=lerp(CAM.tyaw,CAM.yaw,0.25);
+        CAM.tyaw=lerp(CAM.tyaw,desired,0.12);
       }
     }
 
     this.fireT++;
-    const fireRate=od?2:(this.weaponLevel>=4?3:this.weaponLevel>=2?4:5);
-    if(firing&&al>0.15&&this.fireT>=fireRate){ this.fireT=0; this._shoot(od); }
+    const isRockets=this.primaryWeapon==='rockets';
+    const fireRate=od?2:isRockets?18:(this.weaponLevel>=4?3:this.weaponLevel>=2?4:5);
+    if(firing&&al>0.15&&this.fireT>=fireRate){
+      this.fireT=0;
+      if(isRockets) this._fireRocket(od);
+      else this._shoot(od);
+    }
 
     // ── VERTICAL PHYSICS — gravity + jetpack ──
     const GRAV=220;
@@ -5352,6 +5413,21 @@ class Player{
     else if(lvl>=2){ fire(a,'normal');fire(a+0.13,'normal');fire(a-0.13,'normal'); }
     else fire(a,'normal');
     ps.spark(this.wx+Math.cos(a)*14,this.wz+Math.sin(a)*14,[1,0.85,0]); }
+  _fireRocket(od){
+    // Fire 1-3 homing rockets depending on weapon level / overdrive
+    const a=this.aim;
+    const spread=od?0.22:0.14;
+    const count=od?3:1;
+    const offsets=count===1?[0]:[-spread,0,spread];
+    offsets.forEach((off,i)=>{
+      const ang=a+off;
+      const mx=this.wx+Math.cos(ang)*14, mz=this.wz+Math.sin(ang)*14;
+      GS.missiles.push(new Missile(mx,mz,Math.cos(ang),Math.sin(ang),9+this.py));
+      ps.ring(mx,mz,[1,0.5,0.1],4,40);
+    });
+    Audio.blip(220,0.14,'sawtooth',0.18,80);
+    this._lastFiring=true;
+  }
   draw(od){
     const ud=this.model.userData;
     const t=performance.now()*0.001;
@@ -5721,19 +5797,46 @@ function startGame(levelIdx){
     const cycleBtn=document.getElementById('btn-cycle');
     if(cycleBtn){
       cycleBtn.style.display='flex';
-      // Position: same left as joystick-left center, above it
       const jlEl=document.getElementById('joystick-left');
       const jlRect=jlEl.getBoundingClientRect();
       const btnW=48, btnH=48;
       cycleBtn.style.left=(jlRect.left+jlRect.width/2-btnW/2)+'px';
-      cycleBtn.style.bottom=(window.innerHeight-jlRect.top+28)+'px'; // 28px gap instead of 12
-      cycleBtn.addEventListener('touchstart',e=>{
+      cycleBtn.style.bottom=(window.innerHeight-jlRect.top+28)+'px';
+      // Remove old listeners by cloning
+      const newCycle=cycleBtn.cloneNode(true);
+      cycleBtn.parentNode.replaceChild(newCycle,cycleBtn);
+      newCycle.addEventListener('touchstart',e=>{
         e.preventDefault();
         if(!player||GS.state!=='playing')return;
         player.cycleWeapon();
         if(GS.zone===-1) TUT._weaponCycled=true;
-        announce('WEAPON: '+player.secWeapon.toUpperCase(),'#00ffc8');
         updateWeaponHUD();
+      },{passive:false});
+    }
+    // Bomb arm button — above right stick
+    const bombBtn=document.getElementById('btn-bomb-arm');
+    if(bombBtn){
+      bombBtn.style.display='flex';
+      const jrEl=document.getElementById('joystick-right');
+      const jrRect=jrEl.getBoundingClientRect();
+      const bw=48;
+      bombBtn.style.right=(window.innerWidth-jrRect.right+jrRect.width/2-bw/2)+'px';
+      bombBtn.style.bottom=(window.innerHeight-jrRect.top+28)+'px';
+      const newBomb=bombBtn.cloneNode(true);
+      bombBtn.parentNode.replaceChild(newBomb,bombBtn);
+      newBomb.addEventListener('touchstart',e=>{
+        e.preventDefault();
+        if(!player||GS.state!=='playing')return;
+        if(player.bombs<=0){ announce('NO BOMBS','#ff4400'); return; }
+        if(player.bombArmed){
+          // Already armed — tap disarms
+          player._disarmBomb();
+          newBomb.classList.remove('armed');
+        } else {
+          player._armBomb();
+          newBomb.classList.add('armed');
+          announce('BOMB ARMED — THROW WITH RIGHT STICK','#ff8800');
+        }
       },{passive:false});
     }
   }
@@ -6314,16 +6417,17 @@ function checkHits(){ let dieSfx=0,bigSfx=0,didHit=false,kt=0;
 // ── WEAPON HUD — update the active weapon icon on the left side ──
 function updateWeaponHUD(){
   if(!player)return;
-  const w=player.secWeapon||'bullets';
+  const w=player.primaryWeapon||'bullets';
   const bombIcon=document.getElementById('icon-bomb');
   const missileIcon=document.getElementById('icon-missile');
   const bulletsIcon=document.getElementById('icon-bullets');
   const weaponName=document.getElementById('weapon-name');
-  if(bombIcon) bombIcon.style.display=w==='bomb'?'block':'none';
-  if(missileIcon) missileIcon.style.display=w==='missile'?'block':'none';
+  // Primary weapon: bullets = bullets icon, rockets = missile icon
+  if(bombIcon) bombIcon.style.display='none'; // bomb is its own category now
+  if(missileIcon) missileIcon.style.display=w==='rockets'?'block':'none';
   if(bulletsIcon) bulletsIcon.style.display=w==='bullets'?'block':'none';
   if(weaponName){
-    const colors={bomb:'#ff3333',missile:'#ff8800',bullets:'#00ccff'};
+    const colors={bullets:'#00ccff',rockets:'#ff8800'};
     weaponName.textContent=w.toUpperCase();
     weaponName.style.color=colors[w]||'#00ccff';
     weaponName.style.textShadow=`0 0 10px ${colors[w]||'#00ccff'}`;
@@ -6331,7 +6435,7 @@ function updateWeaponHUD(){
   // Update cycle button glow color to match weapon
   const cycleBtn=document.getElementById('btn-cycle');
   if(cycleBtn&&IS_TOUCH){
-    const cols={bomb:'#ff3333',missile:'#ff8800',bullets:'#00ffc8'};
+    const cols={bullets:'#00ccff',rockets:'#ff8800'};
     const c=cols[w]||'#00ffc8';
     cycleBtn.style.borderColor=c+'88';
     cycleBtn.style.color=c;
@@ -6599,8 +6703,7 @@ jL.onTap=()=>{
   }
 };
 
-// RIGHT stick: tap = jump (or tap-throw bomb in aim dir), SWIPE = throw bomb in swipe direction
-// Wrap the joystick event handlers to capture swipe velocity
+// RIGHT stick: tap = jump; drag = aim+fire primary; when bomb armed: drag = crosshair, flick = quick throw, tap = drop
 {
   const origStart=jR._start.bind(jR);
   const origMove=jR._move.bind(jR);
@@ -6618,41 +6721,36 @@ jL.onTap=()=>{
     for(const t of e.changedTouches)if(t.identifier===jR.id){
       const now=performance.now();
       jR._swipeHist.push({x:t.clientX,y:t.clientY,time:now});
-      while(jR._swipeHist.length>1&&now-jR._swipeHist[0].time>80) jR._swipeHist.shift();
+      while(jR._swipeHist.length>1&&now-jR._swipeHist[0].time>100) jR._swipeHist.shift();
       break;
     }
   };
   jR._end=function(e){
     if(jR.id!==null){
       for(const t of e.changedTouches)if(t.identifier===jR.id){
-        const hist=jR._swipeHist;
-        if(hist.length>=2&&player&&GS.state==='playing'){
-          const newest=hist[hist.length-1], oldest=hist[0];
-          const dt=(newest.time-oldest.time)||1;
-          const svx=(newest.x-oldest.x)/dt;
-          const svy=(newest.y-oldest.y)/dt;
-          const spd=Math.hypot(svx,svy);
-          if(spd>0.25){
-            // Convert screen swipe to world direction
-            const cy=Math.cos(CAM.yaw), sy=Math.sin(CAM.yaw);
-            const wx=svx*cy+svy*sy, wz=-svx*sy+svy*cy;
-            const len=Math.hypot(wx,wz)||1;
-            const dx=wx/len, dz=wz/len;
-
-            // Right stick flick = fire selected secondary weapon
-            window._lastRFlickTime=performance.now(); // for dual-flick detection
-            player.useSecWeapon(dx,dz);
-            player._lastFiring=true;
-            player._secFireActive=true;
-            clearTimeout(player._secFireTimeout);
-            const mHold=player.secWeapon==='missile'?1500:400;
-            player._secFireTimeout=setTimeout(()=>{ if(player){ player._lastFiring=false; player._secFireActive=false; } },mHold);
-            player._flickCooldown=45; // suppress bullets for 0.75s after flick
-            jR._tapMoved=true; // suppress onTap
-            // Clear stick output so residual position doesn't fire main weapon
-            shootIn.x=0; shootIn.y=0;
+        if(player&&GS.state==='playing'&&player.bombArmed){
+          const hist=jR._swipeHist;
+          if(hist.length>=2){
+            const newest=hist[hist.length-1], oldest=hist[0];
+            const elapsed=(newest.time-oldest.time)||1;
+            const svx=(newest.x-oldest.x)/elapsed;
+            const svy=(newest.y-oldest.y)/elapsed;
+            const spd=Math.hypot(svx,svy);
+            if(spd>0.35&&elapsed<200){
+              // Fast flick = throw bomb immediately in that direction
+              const cy=Math.cos(CAM.yaw), sy=Math.sin(CAM.yaw);
+              const wx=svx*cy+svy*sy, wz=-svx*sy+svy*cy;
+              const len=Math.hypot(wx,wz)||1;
+              player._throwBomb(wx/len,wz/len);
+              const bb=document.getElementById('btn-bomb-arm');
+              if(bb) bb.classList.remove('armed');
+              jR._tapMoved=true; // suppress onTap drop
+            }
+            // Slow drag release: handled by updateBomb (stick-was-pushed path)
           }
         }
+        // No flick action when bomb not armed — primary fire is hold-not-flick
+        window._lastRFlickTime=0; // clear dual-flick flag
         break;
       }
     }
@@ -6662,14 +6760,20 @@ jL.onTap=()=>{
 
 jR.onTap=()=>{
   if(!player||GS.state!=='playing')return;
+  if(player.bombArmed){
+    // Tap right stick while bomb armed = drop bomb straight down at feet
+    player._throwBomb(0,0);
+    const bb=document.getElementById('btn-bomb-arm');
+    if(bb) bb.classList.remove('armed');
+    return;
+  }
   if(player.py<=8||player._onPlatform){
-    // JUMP — single
+    // JUMP
     player.pvy=180;
     player._onPlatform=false;
     Audio.blip(440,0.4,'sine',0.12,520);
     ps.ring(player.wx,player.wz,[0,0.85,1],12,90);
   }
-  // Airborne taps no longer needed — hold is handled by onHoldStart/onHoldEnd below
 };
 
 // RIGHT STICK HOLD — jetpack fires continuously while finger is down and airborne
@@ -6799,17 +6903,20 @@ function loop(ts){ requestAnimationFrame(loop);
 
         // Only switch if clip exists and changed
         if(targetClip!==ud.currentClip&&ud.clips[targetClip]){
-          // Stop all clips then start new one
+          // Fade out all, fade in new
           Object.values(ud.clips).forEach(a=>a.fadeOut(0.15));
-          ud.clips[targetClip].reset().setEffectiveWeight(1).fadeIn(0.15).play();
+          const next=ud.clips[targetClip];
+          // Only reset if it's not currently running (avoids restarting mid-loop)
+          if(!next.isRunning()) next.reset();
+          next.setEffectiveWeight(1).setEffectiveTimeScale(1.0).fadeIn(0.15).play();
           ud.currentClip=targetClip;
         }
 
-        // Speed scaling — idle always at 1, movement scales with speed
+        // Speed scaling — stationary/air clips always at 1.0, movement clips scale with speed
         const cur=ud.clips[ud.currentClip];
         if(cur){
-          const isIdle=ud.currentClip==='idle'||ud.currentClip==='floating';
-          const animSpd=isIdle?1.0:clamp(spd/160,0.4,1.5);
+          const isStationary=['idle','floating','landing','dive_roll','roll','dash','dive'].some(n=>ud.currentClip.includes(n));
+          const animSpd=isStationary?1.0:clamp(spd/140,0.5,1.6);
           cur.setEffectiveTimeScale(animSpd);
         }
       } else if(ud.runAction){
@@ -6861,16 +6968,23 @@ function loop(ts){ requestAnimationFrame(loop);
       const grenadeActive=player&&player.bombArmed;
       const flickActive=player&&player._flickCooldown>0;
       if(flickActive&&player) player._flickCooldown--;
-      if(IS_TOUCH&&stickAim&&!flickActive){
-        // Right stick = orbit camera. shootIn.x right = positive, rotating right = decreasing tyaw
-        CAM.tyaw -= shootIn.x * dt * 2.2;
-        // Also update aim direction so robot faces camera forward direction
-        if(player) player.aim = -CAM.tyaw + Math.PI/2;
-        aiming=true;
-        avx=Math.cos(-CAM.tyaw); avz=Math.sin(-CAM.tyaw);
+
+      if(IS_TOUCH&&stickAim&&!grenadeActive){
+        // Right stick = twin-stick aim + fire primary weapon
+        const ws=rotInput(shootIn.x,shootIn.y);
+        avx=ws.x; avz=ws.z; aiming=true;
+        firing=!flickActive; // hold stick = fire
+        // Camera yaw softly follows aim direction
+        if(player){
+          const desired=-player.aim-Math.PI/2;
+          let diff=((desired-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
+          CAM.tyaw+=diff*0.04;
+        }
       }
-      if(IS_TOUCH&&flickActive){
-        const a=rotInput(shootIn.x,shootIn.y); avx=a.x; avz=a.z; aiming=true;
+      if(IS_TOUCH&&grenadeActive&&stickAim){
+        // Bomb armed: right stick moves crosshair, no shooting
+        const ws=rotInput(shootIn.x,shootIn.y);
+        avx=ws.x; avz=ws.z; aiming=true; firing=false;
       }
       if(!IS_TOUCH&&mouse.has){
         const a=screenToPlaneDir(mouse.px,mouse.py,player.wx,player.wz);
@@ -6893,11 +7007,11 @@ function loop(ts){ requestAnimationFrame(loop);
       // (hover removed — tap-burst system now in jR.onTap)
       // Keyboard bomb arm/throw
       // G key removed - use F for triple burst or left stick tap to cycle weapons
-      // Update bomb state — pass world-space stick direction
+      // Update bomb crosshair — pass world-space stick direction for crosshair movement
       if(player&&player.bombArmed){
         const sm=Math.hypot(shootIn.x,shootIn.y);
         let worldX=0,worldZ=0;
-        if(sm>0.12){ const ws=rotInput(shootIn.x,shootIn.y); worldX=ws.x; worldZ=ws.z; }
+        if(sm>0.08){ const ws=rotInput(shootIn.x,shootIn.y); worldX=ws.x; worldZ=ws.z; }
         player.updateBomb(dt,worldX,worldZ);
       }
       // Level objects: buttons/keys; platforms+blocks in updatePuzzleLevel (runs BEFORE player physics)
