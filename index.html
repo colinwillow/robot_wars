@@ -8871,7 +8871,7 @@ function loop(ts){ requestAnimationFrame(loop);
                 GS_movingWall.release(); GS_movingWall=null;
               }
             }
-          }catch(e){ console.error('Wall grab error:',e); GS_movingWall=null; }
+          }catch(e){ console.error('Wall grab error: '+(e&&e.message||e)); GS_movingWall=null; }
         }
         for(const w of GS_moveableWalls){
           w.update(dt);
@@ -9081,7 +9081,7 @@ class MoveableWall{
         ud._landingTimer=0;
         ud._rollingTimer=0;
       }
-    }catch(e){ console.error('Grab aim error:',e); }
+    }catch(e){ console.error('Grab aim error:: '+(e&&e.message||String(e))); }
 
     // Record current position — no teleporting
     this._lastPlayerX=player.wx;
@@ -9891,7 +9891,7 @@ window.addEventListener('unhandledrejection', e=>{
 
 try{ buildLevelSelect(); }catch(e){ console.warn('buildLevelSelect:',e); }
 try{ renderLeaderboard(document.getElementById('lb-list')); }catch(e){ const el=document.getElementById('lb-list'); if(el)el.innerHTML='<div style="text-align:center;color:#ffffff44;padding:16px">Scores saved locally</div>'; }
-try{ init(); requestAnimationFrame(loop); }catch(e){ console.error('Init failed:',e); }
+try{ init(); requestAnimationFrame(loop); }catch(e){ console.error('Init failed:: '+(e&&e.message||String(e))); }
 </script>
 <!-- ON-SCREEN DEBUG CONSOLE — remove when done -->
 <div id="dbg-panel" style="
@@ -9927,6 +9927,7 @@ try{ init(); requestAnimationFrame(loop); }catch(e){ console.error('Init failed:
   const lines=[];
   function addLine(type,args){
     const txt=args.map(a=>{
+      if(a instanceof Error) return a.message+(a.stack?(' @ '+a.stack.split('\n').slice(1,2).join('')):'');
       if(typeof a==='object'){try{return JSON.stringify(a);}catch(e){return String(a);}}
       return String(a);
     }).join(' ');
