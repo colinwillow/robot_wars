@@ -9736,21 +9736,21 @@ document.getElementById('start-btn')&&document.getElementById('start-btn').addEv
 // ════════════════════════════════════════════════════════════
 
 // ── CONFIG — replace with your deployed Partykit URL after deploy ──
-const MP_HOST = 'robot-wars.colinwillow.partykit.dev';
+const ABLY_KEY = 'D8JDIg.JWwNUA:UHO9eAg_vdl5BD533eiV7JWGl-heuQYcGmdTgLuXs5c';
 
 const MP = {
-  ws: null,         // WebSocket
-  roomCode: null,   // current room code
-  myId: null,       // our connection ID from server
+  ably: null,       // Ably realtime instance
+  channel: null,    // Ably channel for the room
+  roomCode: null,
+  myId: null,
   isHost: false,
   connected: false,
-  active: false,    // true = we're in a multiplayer game
-  players: {},      // remote players: id → { state, mesh, nameTag }
+  active: false,
+  players: {},
   myName: 'Pilot',
   PLAYER_COLORS: [0xff4444, 0x44ffaa, 0xffaa00, 0xff44ff],
 };
 
-// Generate a random 6-char room code
 function mpGenCode(){ return Math.random().toString(36).slice(2,8).toUpperCase(); }
 
 function mpStatus(msg, col='#ff444488'){
@@ -9759,37 +9759,77 @@ function mpStatus(msg, col='#ff444488'){
 }
 
 function mpConnect(roomCode){
-  if(MP.ws){ MP.ws.close(); MP.ws=null; }
   MP.roomCode=roomCode;
-  const url=`wss://${MP_HOST}/parties/main/${roomCode}`;
   mpStatus('CONNECTING...','#ffaa0088');
-  try{
-    MP.ws=new WebSocket(url);
-  } catch(e){
-    mpStatus('CONNECTION FAILED — CHECK PARTYKIT URL');
-    return;
-  }
 
-  MP.ws.onopen=()=>{
+  // Load Ably SDK dynamically if not loaded
+  if(!window.Ably){
+    const s=document.createElement('script');
+    s.src='https://cdn.ably.com/lib/ably.min-2.js';
+    s.onload=()=>mpConnectAbly(roomCode);
+    s.onerror=()=>mpStatus('FAILED TO LOAD ABLY SDK');
+    document.head.appendChild(s);
+  } else {
+    mpConnectAbly(roomCode);
+  }
+}
+
+function mpConnectAbly(roomCode){
+  // Disconnect existing
+  if(MP.ably){ MP.ably.close(); MP.ably=null; MP.channel=null; }
+
+  MP.myId = 'p_' + Math.random().toString(36).slice(2,10);
+
+  const ably = new Ably.Realtime({ key: ABLY_KEY, clientId: MP.myId });
+  MP.ably = ably;
+
+  ably.connection.on('connected', ()=>{
     MP.connected=true;
     mpStatus('');
-    // Send join message
-    MP.ws.send(JSON.stringify({ type:'join', name:MP.myName }));
-  };
+    const ch = ably.channels.get('rw-room-'+roomCode);
+    MP.channel = ch;
 
-  MP.ws.onclose=()=>{
-    MP.connected=false;
-    if(MP.active) mpStatus('DISCONNECTED','#ff4444');
-  };
+    // Subscribe to all messages
+    ch.subscribe('join', (msg)=>{ mpHandleMessage({type:'player_joined', player:msg.data}); });
+    ch.subscribe('leave', (msg)=>{ mpHandleMessage({type:'player_left', id:msg.data.id}); });
+    ch.subscribe('state', (msg)=>{ if(msg.data.id!==MP.myId) mpHandleMessage({type:'state',...msg.data}); });
+    ch.subscribe('event', (msg)=>{ if(msg.data.id!==MP.myId) mpHandleMessage({type:'event',...msg.data}); });
 
-  MP.ws.onerror=()=>{
-    mpStatus('CONNECTION ERROR — IS THE SERVER RUNNING?');
-  };
+    // Presence: track who's in room
+    ch.presence.subscribe('enter', (m)=>{
+      if(m.clientId===MP.myId) return;
+      const existing=Object.keys(MP.players).length;
+      MP.isHost = Object.keys(MP.players).length===0 && !Object.values(MP.players).length;
+      mpHandleMessage({type:'player_joined', player:{id:m.clientId, name:m.data?.name||'Pilot', color:existing%4, x:0,y:0,z:0,aim:0,hp:3,dead:false}});
+    });
+    ch.presence.subscribe('leave', (m)=>{
+      mpHandleMessage({type:'player_left', id:m.clientId});
+    });
 
-  MP.ws.onmessage=(e)=>{
-    let msg; try{ msg=JSON.parse(e.data); }catch{ return; }
-    mpHandleMessage(msg);
-  };
+    // Enter presence with our name
+    ch.presence.enter({name: MP.myName});
+
+    // Get current members
+    ch.presence.get((err, members)=>{
+      if(err) return;
+      const others = members.filter(m=>m.clientId!==MP.myId);
+      MP.isHost = others.length===0;
+      others.forEach((m,i)=>{
+        mpAddRemotePlayer(m.clientId, {id:m.clientId, name:m.data?.name||'Pilot', color:i%4, x:0,y:0,z:0,aim:0,hp:3,dead:false});
+      });
+      mpUpdateLobbyUI(members.length);
+      // Announce ourselves to others
+      ch.publish('join', {id:MP.myId, name:MP.myName, color:members.length%4, x:0,y:0,z:0,aim:0,hp:3,dead:false});
+    });
+  });
+
+  ably.connection.on('failed', ()=>{ mpStatus('CONNECTION FAILED','#ff4444'); });
+  ably.connection.on('disconnected', ()=>{ if(MP.active) mpStatus('DISCONNECTED','#ff4444'); });
+}
+
+function mpSend(type, data){
+  if(!MP.channel||!MP.connected) return;
+  MP.channel.publish(type, {id:MP.myId, ...data});
 }
 
 function mpHandleMessage(msg){
@@ -9807,16 +9847,14 @@ function mpHandleMessage(msg){
 
     case 'player_joined':
       if(msg.player.id!==MP.myId) mpAddRemotePlayer(msg.player.id, msg.player);
-      MP.isHost=(msg.hostId===MP.myId);
-      mpUpdateLobbyUI(msg.playerCount);
-      mpStatus(`${msg.player.name} JOINED`,'#00ffc888');
+      mpUpdateLobbyUI(Object.keys(MP.players).length+1);
+      mpStatus(`${msg.player.name||'PILOT'} JOINED`,'#00ffc888');
       setTimeout(()=>mpStatus(''),2000);
       break;
 
     case 'player_left':
       mpRemoveRemotePlayer(msg.id);
-      MP.isHost=(msg.hostId===MP.myId);
-      mpUpdateLobbyUI(msg.playerCount);
+      mpUpdateLobbyUI(Object.keys(MP.players).length+1);
       break;
 
     case 'state':
@@ -10005,17 +10043,15 @@ function mpTick(){
   if(!MP.active||!MP.connected||!player||GS.state!=='playing') return;
   _mpTick++;
   if(_mpTick%3!==0) return; // every 3 frames ≈ 50ms at 60fps
-  MP.ws.send(JSON.stringify({
-    type:'state',
+  mpSend('state', {
     x:player.wx, z:player.wz, y:player.py,
-    aim:player.aim,
-    hp:GS.hp,
+    aim:player.aim, hp:GS.hp,
     shieldActive:player.shieldActive,
     shieldHp:player.shieldHp,
     bombArmed:player.bombArmed,
     firing:player._lastFiring||false,
     dead:!player.alive,
-  }));
+  });
 }
 
 // Call mpTick from the main loop (add after player.update)
@@ -10032,7 +10068,7 @@ document.getElementById('mp-create-btn')?.addEventListener('click',()=>{
   document.getElementById('mp-start-btn').style.display='none';
   mpConnect(code);
   document.getElementById('mp-start-btn')?.addEventListener('click',()=>{
-    if(MP.ws&&MP.connected) MP.ws.send(JSON.stringify({type:'start'}));
+    if(MP.connected) mpSend('start',{});
   },{once:true});
 });
 
