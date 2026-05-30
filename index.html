@@ -8113,9 +8113,7 @@ const jR=new Joystick(document.getElementById('joystick-right'),document.getElem
 // (Jump = right stick tap. Cycle = dedicated CYCLE button)
 jL.onTap=()=>{
   if(!player||GS.state!=='playing')return;
-  // Puzzle lab: left stick tap = grab/release wall (don't return — let joystick finish)
-  if(GS.zone===-3){ tryInteractWall(); }
-  else if(player.py>8&&player.secWeapon==='bomb'){
+  if(player.py>8&&player.secWeapon==='bomb'){
     player.dropSecWeaponDown();
   }
 };
@@ -8146,8 +8144,25 @@ jL.onTap=()=>{
   jR._end=function(e){
     if(jR.id!==null){
       for(const t of e.changedTouches)if(t.identifier===jR.id){
-        // Always record the final position so flick works even with no _move events
         jR._swipeHist.push({x:t.clientX,y:t.clientY,time:performance.now()});
+
+        // Right stick flick = grab/release wall (puzzle lab) OR melee in future
+        if(player&&GS.state==='playing'&&GS.zone===-3&&!player.bombArmed){
+          const hist=jR._swipeHist||[];
+          if(hist.length>=2){
+            const first=hist[0], last=hist[hist.length-1];
+            const totalDist=Math.hypot(last.x-first.x,last.y-first.y);
+            const elapsed=(last.time-first.time)||1;
+            if(totalDist>12&&totalDist/elapsed>0.2&&elapsed<400){
+              if(GS_movingWall&&GS_movingWall._grabbed){
+                GS_movingWall.release(); GS_movingWall=null;
+              } else {
+                tryInteractWall();
+              }
+              jR._tapMoved=true; // suppress tap
+            }
+          }
+        }
 
         if(player&&GS.state==='playing'&&player.bombArmed&&!CAM.aimMode){
           const hist=jR._swipeHist||[];
@@ -8345,8 +8360,24 @@ function loop(ts){ requestAnimationFrame(loop);
       if(ud.clips&&Object.keys(ud.clips).length>0){
         const moveAngle=Math.atan2(player.vz,player.vx);
         const wallPushing=GS_movingWall&&GS_movingWall._grabbed;
-        const aimAngle=wallPushing&&GS_movingWall._animAim!==undefined ? GS_movingWall._animAim : player.aim;
+        const aimAngle=player.aim;
         let angleDiff=((moveAngle-aimAngle+Math.PI)%(Math.PI*2)+Math.PI*2)%(Math.PI*2)-Math.PI;
+
+        // Wall push: override angleDiff using raw stick input relative to camera
+        // This avoids world-space coordinate confusion entirely
+        if(wallPushing&&moving){
+          // Raw stick: y=-1 is "up" (push toward screen top = toward wall if camera faces wall)
+          // Use moveIn directly — it's in screen space which matches what player sees
+          const si=moveIn; // raw joystick: x=right, y=down on screen
+          const absX=Math.abs(si.x), absY=Math.abs(si.y);
+          if(absY>=absX){
+            // Stick up/down = push/pull wall
+            angleDiff = si.y<0 ? 0 : Math.PI; // up=run_forward, down=run_backward
+          } else {
+            // Stick left/right = strafe along wall
+            angleDiff = si.x>0 ? -Math.PI/2 : Math.PI/2; // right=strafe_right, left=strafe_left
+          }
+        }
         const moving=spd>20;
         const onGround=player.py<=4||player._onPlatform;
         const airborne=!onGround&&player.py>8;
