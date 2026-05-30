@@ -8146,20 +8146,19 @@ jL.onTap=()=>{
       for(const t of e.changedTouches)if(t.identifier===jR.id){
         jR._swipeHist.push({x:t.clientX,y:t.clientY,time:performance.now()});
 
-        // Right stick flick = grab/release wall (puzzle lab) OR melee in future
+        // Right stick flick = grab/release wall (puzzle lab)
         if(player&&GS.state==='playing'&&GS.zone===-3&&!player.bombArmed){
           const hist=jR._swipeHist||[];
           if(hist.length>=2){
             const first=hist[0], last=hist[hist.length-1];
             const totalDist=Math.hypot(last.x-first.x,last.y-first.y);
             const elapsed=(last.time-first.time)||1;
-            if(totalDist>12&&totalDist/elapsed>0.2&&elapsed<400){
-              if(GS_movingWall&&GS_movingWall._grabbed){
-                GS_movingWall.release(); GS_movingWall=null;
-              } else {
-                tryInteractWall();
-              }
-              jR._tapMoved=true; // suppress tap
+            const now2=performance.now();
+            if(totalDist>12&&totalDist/elapsed>0.2&&elapsed<400&&
+               (!window._wallFlickT||now2-window._wallFlickT>500)){
+              window._wallFlickT=now2;
+              tryInteractWall();
+              jR._tapMoved=true; // suppress onTap jump
             }
           }
         }
