@@ -294,6 +294,16 @@ canvas{display:block}
     box-shadow:0 0 24px #00ffc844;letter-spacing:4px">▶ PLAY</button>
   <div style="font-size:8px;letter-spacing:2px;color:#ffffff33;text-align:center;margin-bottom:8px">SINGLE PLAYER · ZONE 1</div>
 
+  <!-- CONTROL MODE -->
+  <div style="text-align:center;margin:8px 0 14px">
+    <div style="font-size:8px;letter-spacing:3px;color:#00ffc888;margin-bottom:6px">── CONTROLS ──</div>
+    <div style="display:flex;justify-content:center;gap:8px">
+      <button id="ctrl-standard" onclick="window.CTRL_MODE='standard';document.getElementById('ctrl-standard').style.borderColor='#00ffc8';document.getElementById('ctrl-follow').style.borderColor='#ffffff22'" style="padding:8px 16px;font-size:0.7em;letter-spacing:2px;border:1px solid #00ffc8;background:#00ffc811;color:#00ffc8;border-radius:6px">🎮 STANDARD</button>
+      <button id="ctrl-follow" onclick="window.CTRL_MODE='follow';document.getElementById('ctrl-follow').style.borderColor='#00ffc8';document.getElementById('ctrl-standard').style.borderColor='#ffffff22'" style="padding:8px 16px;font-size:0.7em;letter-spacing:2px;border:1px solid #ffffff22;background:#00000022;color:#ffffff88;border-radius:6px">📷 AUTO-CAM</button>
+    </div>
+    <div style="font-size:7px;color:#ffffff33;margin-top:5px;letter-spacing:1px">AUTO-CAM: camera follows movement · right stick aims</div>
+  </div>
+
   <!-- VERSUS BOT -->
   <div style="text-align:center;margin-bottom:14px">
     <div style="font-size:8px;letter-spacing:3px;color:#ff440088;margin-bottom:6px">── VERSUS ──</div>
@@ -5567,15 +5577,26 @@ class Player{
       if(al>0.15) this.aim=Math.atan2(avz,avx);
     }
 
-    // ── CAMERA — softly follows aim on both platforms ──
-    // Uses a large deadzone so the camera only drifts when aim moves significantly,
-    // preventing the snap that was caused by the lerp fighting itself.
-    if(al>0.15){
-      const desired=-this.aim-Math.PI/2;
-      let diff=((desired-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
-      // Small deadzone — don't nudge camera for tiny aim wiggles
-      if(Math.abs(diff)>0.25){
-        CAM.tyaw+=diff*0.028; // gentle, no snap
+    // ── CAMERA FOLLOW ──
+    if(window.CTRL_MODE==='follow'){
+      // AUTO-CAM: camera always follows movement direction
+      const mvMag=Math.hypot(rawX,rawZ);
+      if(mvMag>0.2){
+        // Camera yaw follows movement direction
+        const moveWorldAngle=Math.atan2(rawZ,rawX);
+        // Camera should sit behind the movement direction
+        const desiredCamYaw=-moveWorldAngle-Math.PI/2;
+        let diff=((desiredCamYaw-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
+        CAM.tyaw+=diff*0.04; // smooth follow
+      }
+      // Right stick still rotates character aim for shooting
+      if(al>0.15) this.aim=Math.atan2(avz,avx);
+    } else {
+      // STANDARD: camera softly follows aim
+      if(al>0.15){
+        const desired=-this.aim-Math.PI/2;
+        let diff=((desired-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
+        if(Math.abs(diff)>0.25) CAM.tyaw+=diff*0.028;
       }
     }
 
@@ -10020,7 +10041,7 @@ document.getElementById('mp-code-input')?.addEventListener('keydown',e=>{
 window._MP=MP;
 window._mpTick=mpTick;
 
-// iOS AudioContext requires user gesture — resume on any interaction
+window.CTRL_MODE=window.CTRL_MODE||'standard'; // 'standard' or 'follow' — resume on any interaction
 function _tryResumeAudio(){
   Audio.init();
   if(Audio.ctx&&Audio.ctx.state==='suspended') Audio.ctx.resume();
