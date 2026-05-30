@@ -297,11 +297,12 @@ canvas{display:block}
   <!-- CONTROL MODE -->
   <div style="text-align:center;margin:8px 0 14px">
     <div style="font-size:8px;letter-spacing:3px;color:#00ffc888;margin-bottom:6px">── CONTROLS ──</div>
-    <div style="display:flex;justify-content:center;gap:8px">
-      <button id="ctrl-standard" onclick="window.CTRL_MODE='standard';document.getElementById('ctrl-standard').style.borderColor='#00ffc8';document.getElementById('ctrl-follow').style.borderColor='#ffffff22'" style="padding:8px 16px;font-size:0.7em;letter-spacing:2px;border:1px solid #00ffc8;background:#00ffc811;color:#00ffc8;border-radius:6px">🎮 STANDARD</button>
-      <button id="ctrl-follow" onclick="window.CTRL_MODE='follow';document.getElementById('ctrl-follow').style.borderColor='#00ffc8';document.getElementById('ctrl-standard').style.borderColor='#ffffff22'" style="padding:8px 16px;font-size:0.7em;letter-spacing:2px;border:1px solid #ffffff22;background:#00000022;color:#ffffff88;border-radius:6px">📷 AUTO-CAM</button>
+    <div style="display:flex;justify-content:center;gap:8px;flex-wrap:wrap">
+      <button id="ctrl-standard" onclick="window.CTRL_MODE='standard';['ctrl-standard','ctrl-follow','ctrl-hybrid'].forEach(id=>{document.getElementById(id).style.borderColor=id==='ctrl-standard'?'#00ffc8':'#ffffff22'});document.getElementById('ctrl-desc').textContent='TWIN-STICK: right stick aims + rotates camera (classic)'" style="padding:8px 14px;font-size:0.65em;letter-spacing:2px;border:1px solid #00ffc8;background:#00ffc811;color:#00ffc8;border-radius:6px">🎮 TWIN-STICK</button>
+      <button id="ctrl-follow" onclick="window.CTRL_MODE='follow';['ctrl-standard','ctrl-follow','ctrl-hybrid'].forEach(id=>{document.getElementById(id).style.borderColor=id==='ctrl-follow'?'#00ffc8':'#ffffff22'});document.getElementById('ctrl-desc').textContent='ACTION-CAM: camera follows character · right stick pans + aims'" style="padding:8px 14px;font-size:0.65em;letter-spacing:2px;border:1px solid #ffffff22;background:#00000022;color:#ffffff88;border-radius:6px">📷 ACTION-CAM</button>
+      <button id="ctrl-hybrid" onclick="window.CTRL_MODE='hybrid';['ctrl-standard','ctrl-follow','ctrl-hybrid'].forEach(id=>{document.getElementById(id).style.borderColor=id==='ctrl-hybrid'?'#00ffc8':'#ffffff22'});document.getElementById('ctrl-desc').textContent='FREE-AIM: camera follows movement only · right stick aims only'" style="padding:8px 14px;font-size:0.65em;letter-spacing:2px;border:1px solid #ffffff22;background:#00000022;color:#ffffff88;border-radius:6px">🕹️ FREE-AIM</button>
     </div>
-    <div style="font-size:7px;color:#ffffff33;margin-top:5px;letter-spacing:1px">AUTO-CAM: camera follows movement · right stick aims</div>
+    <div id="ctrl-desc" style="font-size:7px;color:#ffffff33;margin-top:5px;letter-spacing:1px;text-align:center">STANDARD: right stick aims + rotates camera</div>
   </div>
 
   <!-- VERSUS BOT -->
@@ -2689,7 +2690,7 @@ class LevelButton{
     this.t+=dt;
     if(!this.active){
       const d=Math.hypot(player.wx-this.wx,player.wz-this.wz);
-      if(d<22){
+      if(d<22&&player.py>=0&&player.py<30){  // must be near ground level of button, not below
         this.active=true;
         this.mesh.material.color.setHex(0xffff00);
         this.ring.material.color.setHex(0xffff00);
@@ -5560,39 +5561,57 @@ class Player{
     const al=Math.hypot(avx,avz);
     const mvMagnitude=Math.hypot(rawX,rawZ);
 
-    if((!GS_movingWall||!GS_movingWall._grabbed)&&!this._wallClimb&&!this._crestSeq){
-      // Normal locomotion: left stick rotates character aim toward movement direction
-      if(mvMagnitude>0.15){
-        const moveAngleWorld=Math.atan2(rawZ,rawX);
-        // Check if right stick is opposing left stick (dot product negative)
-        const rightOpposes=al>0.3&&(avx*rawX+avz*rawZ)<-0.1*al*mvMagnitude;
-        if(!rightOpposes){
-          // No opposing right stick — character faces movement direction
-          let facingDiff=((moveAngleWorld-this.aim+Math.PI)%TAU+TAU)%TAU-Math.PI;
-          this.aim+=facingDiff*Math.min(1,dt*8);
-          this.aim=((this.aim+Math.PI)%TAU+TAU)%TAU-Math.PI;
+    // ── CAMERA + AIM ──
+    if(window.CTRL_MODE==='follow'){
+      // ZELDA-CAM: camera eases behind character, right stick overrides camera+aim
+      const mvMag=Math.hypot(moveIn.x,moveIn.y);
+      if(al>0.3){
+        CAM.tyaw-=shootIn.x*0.05;
+        if(!this._wallClimb&&!this._crestSeq) this.aim=Math.atan2(avz,avx);
+      } else if(mvMag>0.2){
+        const behindYaw=-this.aim-Math.PI/2;
+        let diff=behindYaw-CAM.tyaw;
+        if(diff>Math.PI) diff-=TAU; if(diff<-Math.PI) diff+=TAU;
+        CAM.tyaw+=clamp(diff*0.04,-0.05,0.05);
+        if(!this._wallClimb&&!this._crestSeq){
+          const ws=rotInput(moveIn.x,moveIn.y);
+          const moveAngle=Math.atan2(ws.z,ws.x);
+          let fd=((moveAngle-this.aim+Math.PI)%TAU+TAU)%TAU-Math.PI;
+          this.aim+=fd*Math.min(1,dt*8);
         }
       }
-      // Right stick still controls aim for shooting
-      if(al>0.15) this.aim=Math.atan2(avz,avx);
-    }
-
-    // ── CAMERA FOLLOW ──
-    if(window.CTRL_MODE==='follow'){
-      // AUTO-CAM: camera always follows movement direction
-      const mvMag=Math.hypot(rawX,rawZ);
-      if(mvMag>0.2){
-        // Camera yaw follows movement direction
-        const moveWorldAngle=Math.atan2(rawZ,rawX);
-        // Camera should sit behind the movement direction
-        const desiredCamYaw=-moveWorldAngle-Math.PI/2;
-        let diff=((desiredCamYaw-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
-        CAM.tyaw+=diff*0.04; // smooth follow
+    } else if(window.CTRL_MODE==='hybrid'){
+      // HYBRID: camera 100% follows left stick. Right stick ONLY aims/shoots, never camera.
+      const mvMag=Math.hypot(moveIn.x,moveIn.y);
+      if(!this._wallClimb&&!this._crestSeq){
+        if(mvMag>0.15){
+          const ws=rotInput(moveIn.x,moveIn.y);
+          const moveAngle=Math.atan2(ws.z,ws.x);
+          let fd=((moveAngle-this.aim+Math.PI)%TAU+TAU)%TAU-Math.PI;
+          this.aim+=fd*Math.min(1,dt*8);
+          this.aim=((this.aim+Math.PI)%TAU+TAU)%TAU-Math.PI;
+        }
+        if(al>0.15) this.aim=Math.atan2(avz,avx); // right stick: aim only
       }
-      // Right stick still rotates character aim for shooting
-      if(al>0.15) this.aim=Math.atan2(avz,avx);
+      // Camera always follows left-stick-driven aim — right stick never touches CAM.tyaw
+      const behindYaw=-this.aim-Math.PI/2;
+      let diff=behindYaw-CAM.tyaw;
+      if(diff>Math.PI) diff-=TAU; if(diff<-Math.PI) diff+=TAU;
+      CAM.tyaw+=clamp(diff*0.04,-0.05,0.05);
     } else {
-      // STANDARD: camera softly follows aim
+      // STANDARD: camera softly follows aim, right stick fully controls aim+camera
+      if(!this._wallClimb&&!this._crestSeq){
+        if(mvMagnitude>0.15){
+          const moveAngleWorld=Math.atan2(rawZ,rawX);
+          const rightOpposes=al>0.3&&(avx*rawX+avz*rawZ)<-0.1*al*mvMagnitude;
+          if(!rightOpposes){
+            let facingDiff=((moveAngleWorld-this.aim+Math.PI)%TAU+TAU)%TAU-Math.PI;
+            this.aim+=facingDiff*Math.min(1,dt*8);
+            this.aim=((this.aim+Math.PI)%TAU+TAU)%TAU-Math.PI;
+          }
+        }
+        if(al>0.15) this.aim=Math.atan2(avz,avx);
+      }
       if(al>0.15){
         const desired=-this.aim-Math.PI/2;
         let diff=((desired-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
@@ -5602,7 +5621,7 @@ class Player{
 
     this.fireT++;
     const isRockets=this.primaryWeapon==='rockets';
-    const fireRate=od?2:isRockets?18:(this.weaponLevel>=4?3:this.weaponLevel>=2?4:5);
+    const fireRate=od?4:isRockets?24:(this.weaponLevel>=4?3:this.weaponLevel>=2?4:5);
     if(firing&&al>0.15&&this.fireT>=fireRate){
       this.fireT=0;
       if(isRockets) this._fireRocket(od);
@@ -7005,7 +7024,7 @@ function init(){
   grid=new Grid3D(); ps=new Particles(); player=new Player();
   // Global portals — visible in every zone
   if(GS_portals.length===0){
-    const [a,b]=TeleportArch.makePair(0,-340,0, 0,340,Math.PI,42);
+    const [a,b]=TeleportArch.makePair(-340,0,Math.PI/2, 340,0,-Math.PI/2,42);
     GS_portals.push(a,b);
   }
 }
@@ -9717,7 +9736,7 @@ document.getElementById('start-btn')&&document.getElementById('start-btn').addEv
 // ════════════════════════════════════════════════════════════
 
 // ── CONFIG — replace with your deployed Partykit URL after deploy ──
-const MP_HOST = 'robot-wars.YOUR_USERNAME.partykit.dev';
+const MP_HOST = 'robot-wars.colinwillow.partykit.dev';
 
 const MP = {
   ws: null,         // WebSocket
