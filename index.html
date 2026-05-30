@@ -8349,21 +8349,21 @@ function loop(ts){ requestAnimationFrame(loop);
         const wallPushing=GS_movingWall&&GS_movingWall._grabbed;
         const aimAngle=player.aim;
         let angleDiff=((moveAngle-aimAngle+Math.PI)%(Math.PI*2)+Math.PI*2)%(Math.PI*2)-Math.PI;
-        const moving=spd>20;
+        // When wall-pushing, player velocity is zeroed — use stick input instead
+        const stickMagForAnim=wallPushing?Math.hypot(moveIn.x,moveIn.y):0;
+        const moving=wallPushing ? stickMagForAnim>0.2 : spd>20;
 
-        // Wall push: override angleDiff using raw stick input relative to camera
-        // This avoids world-space coordinate confusion entirely
+        // Wall push: use raw stick input for angleDiff — player velocity is zeroed
         if(wallPushing&&moving){
-          // Raw stick: y=-1 is "up" (push toward screen top = toward wall if camera faces wall)
-          // Use moveIn directly — it's in screen space which matches what player sees
-          const si=moveIn; // raw joystick: x=right, y=down on screen
+          const si=moveIn;
           const absX=Math.abs(si.x), absY=Math.abs(si.y);
           if(absY>=absX){
-            // Stick up/down = push/pull wall
-            angleDiff = si.y<0 ? 0 : Math.PI; // up=run_forward, down=run_backward
+            // Stick up (si.y negative on mobile) = pushing wall forward = run_forward
+            angleDiff = si.y<0 ? 0 : Math.PI;
           } else {
-            // Stick left/right = strafe along wall
-            angleDiff = si.x>0 ? -Math.PI/2 : Math.PI/2; // right=strafe_right, left=strafe_left
+            // Stick right = strafe_right, left = strafe_left
+            // Note: angleDiff -PI/2 = strafe_right, +PI/2 = strafe_left
+            angleDiff = si.x>0 ? -Math.PI/2 : Math.PI/2;
           }
         }
         const onGround=player.py<=4||player._onPlatform;
@@ -9116,16 +9116,9 @@ class MoveableWall{
         const pdx=px-this._lastPlayerX;
         const pdz=pz-this._lastPlayerZ;
 
-        // Move wall: free axis gets full movement, locked axis gets none
-        if(this._moveAxis==='x'){
-          this.wx+=pdx;
-          // Player locked on Z — but wall can ALSO move Z if player somehow moves Z
-          // (face detection might be wrong, so accept Z movement too)
-          this.wz+=pdz;
-        } else {
-          this.wz+=pdz;
-          this.wx+=pdx;
-        }
+        // Move wall on both axes — player input covers both
+        this.wx+=pdx;
+        this.wz+=pdz;
 
         const maxR=ARENA_R-Math.max(this.w,this.d)/2-10;
         this.wx=clamp(this.wx,-maxR,maxR);
