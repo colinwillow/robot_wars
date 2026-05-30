@@ -8363,7 +8363,7 @@ function loop(ts){ requestAnimationFrame(loop);
           } else {
             // Stick right = strafe_right, left = strafe_left
             // Note: angleDiff -PI/2 = strafe_right, +PI/2 = strafe_left
-            angleDiff = si.x>0 ? -Math.PI/2 : Math.PI/2;
+            angleDiff = si.x>0 ? Math.PI/2 : -Math.PI/2;
           }
         }
         const onGround=player.py<=4||player._onPlatform;
