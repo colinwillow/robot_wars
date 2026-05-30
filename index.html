@@ -5546,17 +5546,25 @@ class Player{
       } // end else (not dashing via _dashRamp)
     } // end outer else (not hard-dashing via this.dashing)
 
-    const mvMagnitude=Math.hypot(rawX,rawZ);
-    if(mvMagnitude>0.15){
-      const moveAngle=Math.atan2(rawZ,rawX);
-      let facingDiff=((moveAngle-this.facing+Math.PI)%TAU+TAU)%TAU-Math.PI;
-      this.facing+=facingDiff*Math.min(1,dt*6);
-      // Keep facing wrapped to -π..π
-      this.facing=((this.facing+Math.PI)%TAU+TAU)%TAU-Math.PI;
-    }
-
     const al=Math.hypot(avx,avz);
-    if(al>0.15) this.aim=Math.atan2(avz,avx);
+    const mvMagnitude=Math.hypot(rawX,rawZ);
+
+    if(!GS_movingWall||!GS_movingWall._grabbed){
+      // Normal locomotion: left stick rotates character aim toward movement direction
+      if(mvMagnitude>0.15){
+        const moveAngleWorld=Math.atan2(rawZ,rawX);
+        // Check if right stick is opposing left stick (dot product negative)
+        const rightOpposes=al>0.3&&(avx*rawX+avz*rawZ)<-0.1*al*mvMagnitude;
+        if(!rightOpposes){
+          // No opposing right stick — character faces movement direction
+          let facingDiff=((moveAngleWorld-this.aim+Math.PI)%TAU+TAU)%TAU-Math.PI;
+          this.aim+=facingDiff*Math.min(1,dt*8);
+          this.aim=((this.aim+Math.PI)%TAU+TAU)%TAU-Math.PI;
+        }
+      }
+      // Right stick still controls aim for shooting
+      if(al>0.15) this.aim=Math.atan2(avz,avx);
+    }
 
     // ── CAMERA — softly follows aim on both platforms ──
     // Uses a large deadzone so the camera only drifts when aim moves significantly,
@@ -8336,7 +8344,8 @@ function loop(ts){ requestAnimationFrame(loop);
       const ud=player.model.userData;
       if(ud.clips&&Object.keys(ud.clips).length>0){
         const moveAngle=Math.atan2(player.vz,player.vx);
-        const aimAngle=player.aim;
+        const wallPushing=GS_movingWall&&GS_movingWall._grabbed;
+        const aimAngle=wallPushing&&GS_movingWall._animAim!==undefined ? GS_movingWall._animAim : player.aim;
         let angleDiff=((moveAngle-aimAngle+Math.PI)%(Math.PI*2)+Math.PI*2)%(Math.PI*2)-Math.PI;
         const moving=spd>20;
         const onGround=player.py<=4||player._onPlatform;
@@ -8983,16 +8992,24 @@ class MoveableWall{
       this._camTargetYaw = dz>0 ? 0 : Math.PI;
     }
 
-    // Snap player aim so forward/back movement = pushing/pulling wall
-    // Player faces ALONG the push axis (so forward = push wall, back = pull)
+    // Snap player aim to face the wall correctly
+    // model.rotation.y = -aim + PI/2, so aim=0 → rot=PI/2 → model faces +Z (GLB forward)
+    // moveAngle = atan2(vz, vx), so moving +Z → moveAngle=PI/2, need aim=PI/2 for run_forward
     if(this._moveAxis==='z'){
-      // Wall moves on Z — player pushes by walking in Z
-      // Aim along +Z so forward movement (vz>0) = run_forward = pushing
-      player.aim=Math.PI/2; // atan2(1,0) = pointing in +Z direction
+      // Free axis is Z — player walks in Z to push wall
+      // Need: model faces wall (along ±X), AND aim=PI/2 so vz>0 = run_forward
+      // Player on right face (faceNX=+1): wall is to left (-X), model should face -X
+      // aim=PI/2 → rot.y = -PI/2+PI/2 = 0 → faces +Z (wrong, off by 90°)
+      // Correct: aim=PI → rot.y = -PI+PI/2 = -PI/2 → faces -X ✓ but moveAngle mismatch
+      // So use aim=PI/2 for correct animation, accept model faces +Z (into wall side)
+      // Actually test: just use what makes animations right, fix model separately if needed
+      player.aim = this._faceNX > 0 ? Math.PI : 0;
+      // Override aim for animation: movement in Z needs aim=PI/2 or -PI/2
+      // We'll use a separate _wallAim that overrides just for angleDiff calculation
+      this._animAim = Math.PI/2 * (this._faceNX > 0 ? 1 : -1);
     } else {
-      // Wall moves on X — player pushes by walking in X
-      // Aim along +X so forward movement (vx>0) = run_forward = pushing
-      player.aim=0; // atan2(0,1) = pointing in +X direction
+      player.aim = this._faceNZ > 0 ? -Math.PI/2 : Math.PI/2;
+      this._animAim = this._faceNZ > 0 ? 0 : Math.PI;
     }
 
     // Record current position — no teleporting
