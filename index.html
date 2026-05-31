@@ -10130,6 +10130,7 @@ function mpConnectAbly(roomCode){
     });
     ch.subscribe('player_data', (msg)=>{
       if(msg.data.id===MP.myId) return;
+      console.log('MP: received player_data from',msg.data.id);
       if(!MP.players[msg.data.id]) mpAddRemotePlayer(msg.data.id, msg.data);
     });
 
@@ -10244,6 +10245,7 @@ function MP_PLAYER_COLOR_HEX(idx){
 // ── Remote Player Mesh ──
 function mpAddRemotePlayer(id, state){
   if(MP.players[id]) return;
+  console.log('MP: adding remote player',id, state.name);
 
   const color=MP.PLAYER_COLORS[state.color||0];
 
@@ -10332,6 +10334,7 @@ function mpAddRemotePlayer(id, state){
     rp.mixer=mixer;
     rp._clips=clips;
     rp._clone=clone;
+    console.log('MP: GLB clone ready for',id,'clips=',Object.keys(clips).join(','));
   }).catch(()=>{}); // keep placeholder if GLB fails
 }
 
@@ -10344,7 +10347,7 @@ function mpRemoveRemotePlayer(id){
 
 function mpUpdateRemotePlayer(msg){
   const rp=MP.players[msg.id];
-  if(!rp) return;
+  if(!rp){ console.warn('MP: state for unknown player',msg.id); return; }
   Object.assign(rp.state, msg);
   rp.mesh.position.set(
     lerp(rp.mesh.position.x, msg.x, 0.3),
@@ -10353,12 +10356,13 @@ function mpUpdateRemotePlayer(msg){
   );
   rp.mesh.rotation.y = -msg.aim + Math.PI/2;
 
-  // Drive animation — use _clips which is set on the rp object directly
   const clips=rp._clips;
+  if(!clips&&!rp._loggedNoClips){ console.warn('MP: no clips yet for',msg.id,'mixer=',!!rp.mixer); rp._loggedNoClips=true; }
   if(clips&&msg.clip){
-    const wantClip=msg.clip.replace('.bomb','').replace('.shoot',''); // simplify for remote
+    const wantClip=msg.clip.replace('.bomb','').replace('.shoot','');
     if(wantClip!==rp._currentClip){
       const target=clips[msg.clip]||clips[wantClip]||clips['idle'];
+      console.log('MP: switching',msg.id,'to clip',wantClip,'found=',!!target,'available=',Object.keys(clips).join(','));
       if(target){
         Object.values(clips).forEach(a=>a.fadeOut(0.12));
         if(!target.isRunning()) target.reset();
