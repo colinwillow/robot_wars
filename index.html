@@ -9091,24 +9091,9 @@ function loop(ts){ requestAnimationFrame(loop);
       // ── PUZZLE LAB WALLS ──
       if(GS.zone===-3){
         updateGrindRail(dt);
-        // Balance bar UI
-        let bb=document.getElementById('grind-balance');
-        if(player._grinding){
-          if(!bb){
-            bb=document.createElement('div');
-            bb.id='grind-balance';
-            bb.style.cssText='position:fixed;bottom:220px;left:50%;transform:translateX(-50%);width:160px;height:10px;background:#ffffff22;border-radius:5px;z-index:999;overflow:hidden';
-            const fill=document.createElement('div');
-            fill.id='grind-balance-fill';
-            fill.style.cssText='position:absolute;top:0;height:100%;width:8px;background:#00ffcc;border-radius:5px;transition:left 0.05s';
-            bb.appendChild(fill); document.body.appendChild(bb);
-          }
-          bb.style.display='block';
-          const bal=player._grinding.balance||0;
-          const pct=((bal+1)/2)*100;
-          const fill=document.getElementById('grind-balance-fill');
-          if(fill){ fill.style.left=clamp(pct-2,0,92)+'%'; fill.style.background=Math.abs(bal)>0.6?'#ff4400':'#00ffcc'; }
-        } else if(bb){ bb.style.display='none'; }
+        // Balance bar hidden — no bail mechanic
+        const bb=document.getElementById('grind-balance');
+        if(bb) bb.style.display='none';
         // Right stick toward wall = grab; stick low or jump = release
         if(player&&IS_TOUCH){
           try{
@@ -9740,85 +9725,59 @@ function updateGrindRail(dt){
     const gr=player._grinding;
     gr.t+=gr.speed*dt;
 
-    // ── BALANCE MECHANIC — wobble physics ──
-    // A/D keys or right stick X = balance correction
-    // W/S keys or left stick Y = speed adjustment
-    const balInput=IS_TOUCH?shootIn.x:(keys['KeyD']||keys['ArrowRight']?1:keys['KeyA']||keys['ArrowLeft']?-1:0);
-    const speedInput=IS_TOUCH?-moveIn.y:(keys['KeyW']||keys['ArrowUp']?1:keys['KeyS']||keys['ArrowDown']?-1:0);
-
-    // Speed adjustment — progressive, small effect
-    gr.speed+=speedInput*0.002*dt*60;
-    gr.speed=clamp(gr.speed, gr.speed>0?0.1:-0.1, gr.speed>0?0.8:-0.8);
-
-    if(!gr.balVel) gr.balVel=0;
-    gr.balVel += gr.balance * 0.15 * dt;      // very slow drift away from center
-    gr.balVel += balInput * 0.8 * dt;          // input correction (flipped: A=left=negative)
-    gr.balVel += (Math.random()-0.5)*0.05*dt;  // tiny wobble
-    gr.balVel *= 0.85;                          // strong damping so it doesn't build up
-    gr.balance += gr.balVel;
-    gr.balance = clamp(gr.balance,-1,1);
-
-    // Lean character model based on balance
-    if(player.model){
-      // Rotate model along the rail tangent axis
-      const leanAngle=gr.balance*0.35; // max ~20 degrees lean
-      player.model.rotation.z=leanAngle;
+    // ── RIGHT STICK = spin aim (can shoot while grinding) ──
+    if(IS_TOUCH){
+      if(Math.hypot(shootIn.x,shootIn.y)>0.15)
+        player.aim=Math.atan2(shootIn.y,shootIn.x)+CAM.yaw;
     }
+    // Desktop: mouse aims normally
 
-    // Fall off if too unbalanced — toss sideways off the rail, no jump
-    if(Math.abs(gr.balance)>=0.9){
-      const tan=rail.getTangent(clamp(gr.t,0,1));
-      const side=gr.balance>0?1:-1;
-      if(player.model) player.model.rotation.z=0;
-      // Perpendicular to rail direction: cross product with up vector
-      const perpX= tan.z*side;
-      const perpZ=-tan.x*side;
-      player.vx=perpX*200; player.vz=perpZ*200; player.pvy=0;
-      player._grinding=null; player._grindCooldown=90;
-      const ud2=player.model?.userData;
-      if(ud2?.clips){const gc=ud2.clips['grinding']||ud2.clips['grind'];if(gc)gc.fadeOut(0.2);ud2.currentClip=null;ud2._rollingTimer=0;}
-      announce('BAILED!','#ff4400');
-      return;
-    }
+    // ── LEFT STICK = lean (visual only, no bail) ──
+    const leanInput=IS_TOUCH?moveIn.x:(keys['KeyA']||keys['ArrowLeft']?-1:keys['KeyD']||keys['ArrowRight']?1:0);
+    gr.lean=(gr.lean||0)*0.85+leanInput*0.15;
+    gr.lean=clamp(gr.lean,-1,1);
+    if(player.model) player.model.rotation.z=gr.lean*0.3;
 
-    // Jump off
+    // ── JUMP = flip off rail ──
     if(player._jumpTapped){
       const tan=rail.getTangent(clamp(gr.t,0,1));
       const dir=gr.speed>=0?1:-1;
       if(player.model) player.model.rotation.z=0;
       player._dashDir=[tan.x*dir,tan.z*dir];
-      player._dashRamp=6; player._dashPeak=250;
-      player.pvy=280;
+      player._dashRamp=10; player._dashRampMax=10; player._dashPeak=300;
+      player.pvy=320;
       player._grinding=null; player._jumpTapped=false; player._grindCooldown=60;
       const ud=player.model?.userData;
-      if(ud?.clips){const gc=ud.clips['grinding']||ud.clips['grind'];if(gc)gc.fadeOut(0.2);ud.currentClip=null;ud._rollingTimer=0;}
+      if(ud?.clips){const gc=ud.clips['grind']||ud.clips['grinding'];if(gc)gc.fadeOut(0.15);ud.currentClip=null;ud._rollingTimer=0;}
+      // Trigger front flip
+      const frontFlip=ud?.clips?.['front_flip'];
+      if(frontFlip&&ud){
+        Object.values(ud.clips).forEach(a=>a.fadeOut(0.1));
+        frontFlip.reset().setEffectiveWeight(1).setEffectiveTimeScale(1).setLoop(THREE.LoopOnce,1).fadeIn(0.1).play();
+        ud.currentClip='front_flip'; ud._flipClipName='front_flip';
+        ud._flippingTimer=frontFlip._clip?.duration||0.5; ud._flipFadeStarted=false;
+      }
       return;
     }
 
-    // Reached end — fly off using dash impulse so velocity isn't killed by movement lerp
+    // ── END OF RAIL — launch forward ──
     if(gr.t>=1||gr.t<=0){
       gr.t=clamp(gr.t,0,1);
       const tan=rail.getTangent(gr.t);
       const dir=gr.t>=1?1:-1;
       if(player.model) player.model.rotation.z=0;
-      // Use dash system to carry momentum — same as double-tap dash
-      const speed=550;
       player._dashDir=[tan.x*dir,tan.z*dir];
-      player._dashRamp=14;
-      player._dashPeak=speed;
+      player._dashRamp=14; player._dashRampMax=14; player._dashPeak=550;
       player.pvy=60;
       player._grinding=null; player._grindCooldown=90;
       const ud=player.model?.userData;
-      if(ud?.clips){const gc=ud.clips['grinding']||ud.clips['grind'];if(gc)gc.fadeOut(0.2);ud.currentClip=null;ud._rollingTimer=0;}
+      if(ud?.clips){const gc=ud.clips['grind']||ud.clips['grinding'];if(gc)gc.fadeOut(0.2);ud.currentClip=null;ud._rollingTimer=0;}
       return;
     }
 
     const pos=rail.getPoint(gr.t);
-    const tan=rail.getTangent(gr.t);
-
-    // Smooth lerp to rail position instead of snap
     const targetX=pos.x, targetY=pos.y-8, targetZ=pos.z;
-    const snapSpeed=gr.snapIn?12:20; // faster lock-in after first frame
+    const snapSpeed=gr.snapIn?12:20;
     gr.snapIn=true;
     player.wx=lerp(player.wx,targetX,Math.min(1,snapSpeed*dt));
     player.py=lerp(player.py,targetY,Math.min(1,snapSpeed*dt));
@@ -9826,61 +9785,51 @@ function updateGrindRail(dt){
     player.vx=0; player.vz=0; player.pvy=0;
     player._onPlatform=false;
 
-    // Tilt character based on balance (visual only via aim offset)
-    player.aim=Math.atan2(tan.z,tan.x);
-
-    // Sparks at rail height using burst with offset
+    // Sparks at rail height
     const railY=pos.y;
-    ps.spark(player.wx, player.wz, [0,1,0.8]); // will appear at y=5 but close enough
-    if(Math.random()<0.6){
-      // Manual spark at rail height
-      for(let i=0;i<3;i++){
-        const a=Math.random()*Math.PI*2;
-        const spd=30+Math.random()*60;
+    if(Math.random()<0.8) ps.spark(player.wx,player.wz,[0,1,0.8]);
+    if(Math.random()<0.5){
+      for(let i=0;i<2;i++){
+        const a=Math.random()*Math.PI*2, spd=30+Math.random()*60;
         ps._spawn(player.wx,railY,player.wz,Math.cos(a)*spd,10+Math.random()*30,Math.sin(a)*spd,
-          Math.random()<0.5?1:0, Math.random()<0.5?0.8:1, 0.2, 0.04+Math.random()*0.03);
+          Math.random()<0.5?1:0,Math.random()<0.5?0.8:1,0.2,0.04+Math.random()*0.03);
       }
     }
 
-    // ── GRIND ANIMATION — force it, block blend system ──
+    // Grind animation
     const ud=player.model?.userData;
     if(ud){
-      const grindClip=ud.clips&&(ud.clips['grinding']||ud.clips['grind']);
+      const grindClip=ud.clips&&(ud.clips['grind']||ud.clips['grinding']);
       if(grindClip){
-        if(ud.currentClip!=='grinding'&&ud.currentClip!=='grind'){
+        if(ud.currentClip!=='grind'&&ud.currentClip!=='grinding'){
           Object.values(ud.clips).forEach(a=>a.fadeOut(0.15));
           grindClip.reset().setEffectiveWeight(1).setEffectiveTimeScale(1).fadeIn(0.15).play();
-          ud.currentClip='grinding';
+          ud.currentClip='grind';
         }
-      // Keep blend system blocked while grinding — only if grind clip exists
-      if(grindClip) ud._rollingTimer=0.1;
-      else ud._rollingTimer=0; // no grind clip — don't block blend
+        ud._rollingTimer=0.1;
       }
     }
     return;
   }
 
-  // Tick cooldown
   if(player._grindCooldown>0) player._grindCooldown--;
 
-  // Detect rail contact — only when no cooldown
   if(!player._grinding&&!player._grindCooldown){
     let best=null, bestDist=Infinity;
     for(let i=0;i<=100;i++){
-      const t=i/100;
-      const p=rail.getPoint(t);
+      const t=i/100, p=rail.getPoint(t);
       const dxz=Math.hypot(player.wx-p.x, player.wz-p.z);
       const dy=Math.abs((player.py-2)-p.y);
       const d=Math.hypot(dxz,dy);
       if(d<bestDist){ bestDist=d; best={t,p}; }
     }
-    if(bestDist<25&&best&&!player._grinding){
+    if(bestDist<25&&best){
       const tan=rail.getTangent(best.t);
       const dot=player.vx*tan.x+player.vz*tan.z;
       const dir=dot>=0?1:-1;
-      player._grinding={t:best.t, speed:dir*0.45, balance:0, balVel:0, snapIn:false};
+      player._grinding={t:best.t, speed:dir*0.45, lean:0, snapIn:false};
       Audio.blip(300,0.2,'sawtooth',0.3,600);
-      announce('GRINDING — TILT TO BALANCE · JUMP TO LEAP','#00ffcc');
+      announce('GRINDING','#00ffcc');
     }
   }
 }
