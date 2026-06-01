@@ -333,7 +333,7 @@ canvas{display:block}
   </div>
 
   <!-- ══ TITLE SCREEN ══ -->
-  <div id="screen-title" style="display:none;position:fixed;inset:0;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 40%,#080818 0%,#030308 100%)">
+  <div id="screen-title" style="display:none;position:fixed;inset:0;flex-direction:column;align-items:center;justify-content:flex-start;padding-top:9vh;gap:30px;background:radial-gradient(ellipse at 50% 40%,#080818 0%,#030308 100%)">
     <!-- Animated grid background -->
     <canvas id="title-grid-canvas" style="position:absolute;inset:0;width:100%;height:100%;opacity:0.65;pointer-events:none"></canvas>
     <!-- Glow orb under robot -->
@@ -348,7 +348,7 @@ canvas{display:block}
       <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:3px;color:#ffffff22;margin-top:4px">v0.080</div>
     </div>
     <!-- Robot 3D viewer -->
-    <div style="height:180px;display:flex;align-items:center;justify-content:center;position:relative">
+    <div style="height:200px;display:flex;align-items:center;justify-content:center;position:relative">
       <!-- Glow ring behind robot -->
       <div style="position:absolute;width:140px;height:140px;border:2px solid #00ffc844;border-radius:50%;
         background:radial-gradient(circle,#00ffc808,transparent);
@@ -360,13 +360,13 @@ canvas{display:block}
     <!-- START button -->
     <button onclick="window._showScreen('mode')" style="
       font-family:'Orbitron',sans-serif;font-size:clamp(16px,4vw,22px);font-weight:900;
-      letter-spacing:4px;padding:16px 40px;margin-top:24px;
+      letter-spacing:4px;padding:16px 44px;margin-top:6px;
       background:transparent;border:2px solid #00ffc8;color:#00ffc8;
       box-shadow:0 0 30px #00ffc833,inset 0 0 30px #00ffc808;
       cursor:pointer;text-transform:uppercase;
       animation:startBlink 2s ease-in-out infinite;
       transition:all 0.2s">START</button>
-    <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:3px;color:#ffffff33;margin-top:12px">TAP TO BEGIN YOUR MISSION</div>
+    <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:3px;color:#ffffff33">TAP TO BEGIN YOUR MISSION</div>
   </div>
 
   <!-- ══ MODE SELECT ══ -->
@@ -7377,6 +7377,10 @@ function startGame(levelIdx){
   if(GS_gate){GS_gate.remove();GS_gate=null;}
   if(_transGate){ scene.remove(_transGate); _transGate=null; } _transState=null;
   if(_spawnBeams&&_spawnBeams.length){ _spawnBeams.forEach(b=>scene.remove(b.grp)); _spawnBeams=[]; }
+  // tear down any leftover galaxy objects (planets/platforms/indicator) so they don't bleed into other zones
+  if(window._galaxyObjects){ window._galaxyObjects.forEach(o=>scene.remove(o)); window._galaxyObjects=[]; }
+  window._galaxyPlanets=[]; window._arenaPlatforms=[]; window._dropIndicator=null;
+  if(grid){ grid.dots.material.opacity=0.9; grid.perimeter.material.opacity=0.9; }
   GS_powerups.forEach(p=>p.remove()); GS_powerups=[];
   GS_plants.forEach(p=>p.remove()); GS_plants=[];
   GS_bots.forEach(b=>{ if(b.alive) b.die(); }); GS_bots=[];
@@ -7525,7 +7529,7 @@ function ascendGalaxyStage(){
 let _transGate=null;
 let _transState=null;                       // { mode:'build'|'combat'|'active'|'dissolve', ... }
 let _spawnBeams=[];
-const _T_GATE_Z=-190, _T_BUILD_H=140, _T_OFF=16;   // gate on the FAR side (into the screen): walking to it matches the camera, so no 180° swing
+const _T_GATE_Z=-190, _T_BUILD_H=140, _T_OFF=16, _T_BAND=70;   // _T_BAND = softness of the fade ripple
 const _T_SPAWN_Z=150;                              // player start, near side
 let _T_WAVE=1.4;        // construction wavefront sweep time
 let _T_K=0.055;         // transition-only spring stiffness (higher = snappier descent)
@@ -7607,6 +7611,23 @@ function _transSpawnEnemies(){
   const makers=[ (x,z)=>new Diamond(x,z,1), (x,z)=>new Bouncer(x,z,1), (x,z)=>new Diamond(x,z,1) ];
   spots.forEach(([x,z],i)=>{ spawnBeam(x,z,0x66ddff,()=>{ const e=makers[i](x,z); e.addToScene(); GS.enemies.push(e); }); });
 }
+// Per-edge opacity ripple: multiply the grid's freshly-baked vertex colours so the floor fades in/out
+// as a wavefront F (sweeping the rim → centre). Runs AFTER grid.update()'s _rebuild each frame.
+function _transRippleColors(F,mode){
+  const col=grid.colAttr.array, gcol=grid.glowColAttr.array, SD=grid.SUBDIV, vpe=SD*2, edges=grid._edges, band=_T_BAND;
+  for(let ei=0;ei<edges.length;ei++){
+    const e=edges[ei];
+    const i0=e.r*grid.nx+e.c;
+    const i1=e.row?(e.r*grid.nx+e.c+1):((e.r+1)*grid.nx+e.c);
+    const mx=(grid.rx[i0]+grid.rx[i1])*0.5, mz=(grid.rz[i0]+grid.rz[i1])*0.5;
+    const rad=Math.hypot(mx,mz);
+    let a = mode==='build' ? (rad-F)/band : ((F-rad)/band+1);
+    a = a<0?0:a>1?1:a;
+    const base=ei*vpe*3;
+    for(let v=0;v<vpe;v++){ const k=base+v*3; col[k]*=a; col[k+1]*=a; col[k+2]*=a; gcol[k]*=a; gcol[k+1]*=a; gcol[k+2]*=a; }
+  }
+  grid.colAttr.needsUpdate=true; grid.glowColAttr.needsUpdate=true;
+}
 
 function updateTransition(dt){
   if(!_transState) return;
@@ -7615,12 +7636,13 @@ function updateTransition(dt){
 
   if(st.mode==='build'){
     st.t+=dt;
-    const front=(st.t/_T_WAVE)*maxR;
+    const rev=clamp(st.t/_T_WAVE,0,1);
+    const F=maxR-rev*(maxR+_T_BAND);          // wavefront sweeps rim → centre (maxR → -BAND)
     let maxY=0, allReleased=true;
     for(let r=1;r<grid.nz-1;r++) for(let c=1;c<grid.nx-1;c++){
       const i=r*grid.nx+c;
-      const dist=Math.hypot(grid.rx[i],grid.rz[i]);
-      if(dist<=front) st.released[i]=1; else allReleased=false;
+      const rad=Math.hypot(grid.rx[i],grid.rz[i]);
+      if(rad>=F) st.released[i]=1; else allReleased=false;   // outer nodes release (and reveal) first
       if(st.released[i]){
         st.tvy[i]=(st.tvy[i]+(0-st.ty[i])*_T_K)*_T_D; st.ty[i]+=st.tvy[i];
         st.tox[i]*=_T_OFFDECAY; st.toz[i]*=_T_OFFDECAY;
@@ -7629,8 +7651,12 @@ function updateTransition(dt){
       grid.vy[i]=0; grid.vx[i]=0; grid.vz[i]=0;
       const ay=st.ty[i]<0?-st.ty[i]:st.ty[i]; if(ay>maxY) maxY=ay;
     }
+    _transRippleColors(F,'build');
+    grid.dots.material.opacity=0.9*rev;
+    grid.perimeter.material.opacity=0.9*clamp((ARENA_R-F)/_T_BAND,0,1);
     if(allReleased && maxY<2.0){
       st.mode='combat'; _setGateState('locked'); _transSpawnEnemies();
+      grid.dots.material.opacity=0.9; grid.perimeter.material.opacity=0.9;
       announce('CLEAR THE SECTOR','#ff3355');
     }
   } else if(st.mode==='combat'){
@@ -7653,13 +7679,18 @@ function updateTransition(dt){
     }
   } else if(st.mode==='dissolve'){
     st.t+=dt;
-    const front=(st.t/_T_WAVE)*maxR;
+    const rev=clamp(st.t/_T_WAVE,0,1);
+    const F=maxR-rev*(maxR+_T_BAND);
     for(let r=1;r<grid.nz-1;r++) for(let c=1;c<grid.nx-1;c++){
       const i=r*grid.nx+c;
-      const dist=Math.hypot(grid.rx[i],grid.rz[i]);
-      if(dist<front && !st.kicked[i]){ st.kicked[i]=1; grid.vy[i]+=6+Math.random()*5; const d=dist||1; grid.vx[i]+=(grid.rx[i]/d)*1.3; grid.vz[i]+=(grid.rz[i]/d)*1.3; }
+      const rad=Math.hypot(grid.rx[i],grid.rz[i]);
+      if(rad>=F && !st.kicked[i]){ st.kicked[i]=1; grid.vy[i]+=5+Math.random()*4; const d=rad||1; grid.vx[i]+=(grid.rx[i]/d)*1.0; grid.vz[i]+=(grid.rz[i]/d)*1.0; }
     }
+    _transRippleColors(F,'dissolve');
+    grid.dots.material.opacity=0.9*(1-rev);
+    grid.perimeter.material.opacity=0.9*clamp(1-(ARENA_R-F)/_T_BAND,0,1);
     if(st.t>=_T_WAVE){
+      grid.dots.material.opacity=0.9; grid.perimeter.material.opacity=0.9;
       _transState=_makeBuildState();
       player.wx=0; player.wz=_T_SPAWN_Z; player.py=0; player.vx=0; player.vz=0;
       CAM.tyaw=0; CAM.yaw=0; CAM.tfocus.set(player.wx,4,player.wz); CAM.focus.copy(CAM.tfocus);   // keep camera behind, facing the gate
