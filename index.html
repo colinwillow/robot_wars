@@ -348,9 +348,13 @@ canvas{display:block}
       <div style="font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:3px;color:#ffffff22;margin-top:4px">v0.080</div>
     </div>
     <!-- Robot 3D viewer -->
-    <div style="height:160px;display:flex;align-items:center;justify-content:center;position:relative">
-      <canvas id="title-robot-canvas" style="width:160px;height:160px;border-radius:50%;background:transparent"></canvas>
-      <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:120px;height:24px;
+    <div style="height:180px;display:flex;align-items:center;justify-content:center;position:relative">
+      <!-- Glow ring behind robot -->
+      <div style="position:absolute;width:140px;height:140px;border:2px solid #00ffc844;border-radius:50%;
+        background:radial-gradient(circle,#00ffc808,transparent);
+        box-shadow:0 0 30px #00ffc822;pointer-events:none"></div>
+      <canvas id="title-robot-canvas" style="width:160px;height:160px"></canvas>
+      <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:120px;height:20px;
         background:radial-gradient(ellipse,#00ffc833,transparent);filter:blur(8px);pointer-events:none"></div>
     </div>
     <!-- START button -->
@@ -11618,7 +11622,11 @@ function _startRobotViewer(canvasId, opts={}){
     modelRoot=new THREE.Group(); modelRoot.add(model); sc.add(modelRoot);
     if(gltf.animations&&gltf.animations.length>0){
       mixer=new THREE.AnimationMixer(model);
-      mixer.clipAction(gltf.animations[0]).play();
+      // Find idle clip by name, same as game does
+      const clips={};
+      gltf.animations.forEach(a=>{ clips[a.name.toLowerCase()]=a; });
+      const idleClip=clips['idle']||clips['floating']||gltf.animations[0];
+      mixer.clipAction(idleClip).play();
     }
   }
 
