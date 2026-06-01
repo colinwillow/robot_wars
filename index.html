@@ -353,7 +353,7 @@ canvas{display:block}
       <div style="position:absolute;width:140px;height:140px;border:2px solid #00ffc844;border-radius:50%;
         background:radial-gradient(circle,#00ffc808,transparent);
         box-shadow:0 0 30px #00ffc822;pointer-events:none;z-index:0"></div>
-      <canvas id="title-robot-canvas" style="width:200px;height:220px;position:relative;z-index:1"></canvas>
+      <canvas id="title-robot-canvas" style="width:220px;height:280px;position:relative;z-index:1"></canvas>
       <div style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:120px;height:20px;
         background:radial-gradient(ellipse,#00ffc833,transparent);filter:blur(8px);pointer-events:none"></div>
     </div>
@@ -404,7 +404,7 @@ canvas{display:block}
       <!-- Robot 1 — selected -->
       <div onclick="window._selectChar(0)" id="char-0" style="cursor:pointer;text-align:center;padding:20px 16px;border:2px solid #00ffc8;
         background:#00ffc808;border-radius:12px;min-width:130px;box-shadow:0 0 20px #00ffc833;transition:all 0.2s">
-        <canvas id="char-robot-canvas-0" style="width:100px;height:110px;margin-bottom:4px"></canvas>
+        <canvas id="char-robot-canvas-0" style="width:90px;height:130px;margin-bottom:4px"></canvas>
         <div style="font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;color:#00ffc8">UNIT-01</div>
         <div style="font-family:'Orbitron',sans-serif;font-size:8px;color:#00ffc866;letter-spacing:2px;margin-top:3px">STANDARD</div>
         <div style="margin-top:8px;font-family:'Orbitron',sans-serif;font-size:7px;color:#ffffff55;letter-spacing:1px">ATK ████░<br>DEF ███░░<br>SPD █████</div>
@@ -11592,8 +11592,8 @@ function _startRobotViewer(canvasId, opts={}){
 
   const sc=new THREE.Scene();
   const cam=new THREE.PerspectiveCamera(45,w/h,0.1,100);
-  cam.position.set(0,0.8,opts.camZ||5.5);
-  cam.lookAt(0,opts.camLookY||0.3,0);
+  cam.position.set(0,0.6,opts.camZ||7.5);
+  cam.lookAt(0,opts.camLookY||0.1,0);
 
   sc.add(new THREE.AmbientLight(0x4488ff,0.8));
   const kl=new THREE.DirectionalLight(0x00ffc8,1.4); kl.position.set(1,2,2); sc.add(kl);
@@ -11659,8 +11659,8 @@ function _startRobotViewer(canvasId, opts={}){
 const _origShowScreen=window._showScreen;
 window._showScreen=function(name){
   _origShowScreen(name);
-  if(name==='title') setTimeout(()=>_startRobotViewer('title-robot-canvas',{yOffset:-0.7}),100);
-  if(name==='character') setTimeout(()=>_startRobotViewer('char-robot-canvas-0',{yOffset:-0.6,startRot:0.5,camZ:4.5,camLookY:0.1}),100);
+  if(name==='title') setTimeout(()=>_startRobotViewer('title-robot-canvas',{yOffset:-0.9}),100);
+  if(name==='character') setTimeout(()=>_startRobotViewer('char-robot-canvas-0',{yOffset:-0.8,startRot:0.5,camZ:6.0,camLookY:0.0}),100);
 };
 
 // ══ SPLASH SEQUENCE ══
@@ -11693,7 +11693,7 @@ window._showScreen=function(name){
       if(splash) splash.style.display='none';
       window._showScreen('title');
       _startTitleGrid();
-      setTimeout(()=>_startRobotViewer('title-robot-canvas',{yOffset:-0.7}),200);
+      setTimeout(()=>_startRobotViewer('title-robot-canvas',{yOffset:-0.9}),200);
     },600);
   },2200);
 })();
