@@ -5101,17 +5101,19 @@ const bulletMats={ normal:new THREE.MeshStandardMaterial({color:0xffffff,emissiv
   laser:new THREE.MeshStandardMaterial({color:0xffffff,emissive:0x00ffea,emissiveIntensity:2.6}),
   homing:new THREE.MeshStandardMaterial({color:0xffffff,emissive:0xff66cc,emissiveIntensity:2.4}) };
 class Bullet{
-  constructor(wx,wz,vx,vz,kind='normal',y0){ this.wx=wx;this.wz=wz;this.vx=vx;this.vz=vz;this.kind=kind;this.life=1;
-    this.y=(y0!==undefined?y0:9); this.vy=0;
+  constructor(wx,wz,vx,vz,kind='normal',y0,vy0,g3){ this.wx=wx;this.wz=wz;this.vx=vx;this.vz=vz;this.kind=kind;this.life=1;
+    this.y=(y0!==undefined?y0:9); this._g3=!!g3; this.vy=(this._g3&&vy0!==undefined)?vy0:0;
     this.decay=kind==='laser'?0.014:0.008; this.pierce=kind==='laser'?3:0; this.dmg=kind==='laser'?2:1; this.hitSet=new Set();
     this.mesh=new THREE.Mesh(bulletGeo,bulletMats[kind]); this.mesh.scale.setScalar(kind==='laser'?1.4:1); this.mesh.position.set(wx,this.y,wz); scene.add(this.mesh); }
   update(dt,enemies){
     if(this.kind==='homing'){ let best=null,bd=1e9; for(const e of enemies){const dx=e.wx-this.wx,dz=e.wz-this.wz,d=dx*dx+dz*dz;if(d<bd){bd=d;best=e;}}
       if(best){const dx=best.wx-this.wx,dz=best.wz-this.wz,d=Math.hypot(dx,dz)||1;this.vx+=(dx/d)*1000*dt;this.vz+=(dz/d)*1000*dt;const s=Math.hypot(this.vx,this.vz),mx=480;if(s>mx){this.vx=this.vx/s*mx;this.vz=this.vz/s*mx;}} }
     this.wx+=this.vx*dt;this.wz+=this.vz*dt;this.life-=this.decay*dt*60;
-    if(this.y>9){ this.vy-=420*dt; this.y+=this.vy*dt; if(this.y<9){this.y=9;this.vy=0;} }
+    if(this._g3){ this.y+=this.vy*dt; } // straight-line 3D flight (galaxy) — no floor gravity
+    else if(this.y>9){ this.vy-=420*dt; this.y+=this.vy*dt; if(this.y<9){this.y=9;this.vy=0;} }
     this.mesh.position.set(this.wx,this.y,this.wz);
-    if(this.wx<-HALF_W-30||this.wx>HALF_W+30||this.wz<-HALF_D-30||this.wz>HALF_D+30)this.life=0; }
+    if(this._g3){ if(Math.abs(this.wx)>1600||Math.abs(this.wz)>1600||this.y<-300||this.y>1400)this.life=0; }
+    else if(this.wx<-HALF_W-30||this.wx>HALF_W+30||this.wz<-HALF_D-30||this.wz>HALF_D+30)this.life=0; }
   remove(){ scene.remove(this.mesh); }
 }
 
@@ -5789,7 +5791,7 @@ class Player{
       if(Math.random()<0.8)ps.spark(this.wx,this.wz,[0,0.85,1]); grid.push(this.wx,this.wz,-0.3,38);
     } else {
       // Galaxy planet state owns movement but still allow aim/shoot
-      if(this._inPlanetGravity&&_gState==='planet'){
+      if(this._inPlanetGravity){
         const al=Math.hypot(avx,avz);
         if(al>0.15) this.aim=Math.atan2(avz,avx);
         this.fireT++;
@@ -6143,9 +6145,21 @@ class Player{
     } else if(this.model?.userData?.isRobot){
       y0=22+this.py;
     }
+    const isGalaxy = this._inPlanetGravity && GS.zone===-4;
+    const dir3FromAngle=(ang)=>{
+      // project the flat aim direction onto the surface tangent plane (up = _gN)
+      const flat=new THREE.Vector3(Math.cos(ang),0,Math.sin(ang));
+      flat.addScaledVector(_gN,-flat.dot(_gN));
+      if(flat.lengthSq()<1e-4) return null;
+      return flat.normalize();
+    };
     const fire=(ang,kind)=>{
-      const b=new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0);
-      GS.bullets.push(b);
+      if(isGalaxy){
+        const d3=dir3FromAngle(ang)||new THREE.Vector3(Math.cos(ang),0,Math.sin(ang));
+        GS.bullets.push(new Bullet(spawnX,spawnZ,d3.x*bspd,d3.z*bspd,kind,y0,d3.y*bspd,true));
+      } else {
+        GS.bullets.push(new Bullet(spawnX,spawnZ,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,y0));
+      }
     };
     if(od){ fire(a,'laser');fire(a+0.16,'laser');fire(a-0.16,'laser'); if(Math.random()<0.4)fire(a+rand(-0.5,0.5),'homing'); }
     else if(lvl>=5){ fire(a,'normal'); fire(a+0.1,'normal'); } // lvl5 = faster bullets, missiles only via flick
@@ -6187,13 +6201,18 @@ class Player{
 
     // Camera always updates — must be first, before any early returns
     if(!this._camFocY) this._camFocY=4;
-    const targetFocY = this._inPlanetGravity ? this.py : 4+this.py*0.55;
+    if(this._inPlanetGravity){
+      // Galaxy diorama camera is owned entirely by updateGalaxy — just keep the rim lit and bail.
+      if(GS.zone===-4){
+        if(ud.rim) ud.rim.material.emissive?.setHex(od?0xffe600:0x00ffc8);
+        return;
+      }
+    }
+    const targetFocY = 4+this.py*0.55;
     this._camFocY=lerp(this._camFocY, targetFocY, 0.05);
-    const camTargetDist = this._inPlanetGravity ? 480 : 230;
-    const camTargetHeight = this._inPlanetGravity ? 360 : 200;
-    CAM.dist=lerp(CAM.dist, camTargetDist, 0.03);
-    CAM.height=lerp(CAM.height, camTargetHeight, 0.03);
-    if(!this._inPlanetGravity){
+    CAM.dist=lerp(CAM.dist, 230, 0.03);
+    CAM.height=lerp(CAM.height, 200, 0.03);
+    {
       const aspect=window.innerWidth/window.innerHeight;
       if(aspect>1.1&&this.py>20){
         const tDist=Math.min(420,230+(this.py-20)*0.9);
@@ -6201,12 +6220,6 @@ class Player{
       }
     }
     CAM.tfocus.set(this.wx,this._camFocY,this.wz);
-
-    // Galaxy planet state owns model position + rotation entirely
-    if(GS.zone===-4&&this._inPlanetGravity&&_gState==='planet'){
-      if(ud.rim) ud.rim.material.emissive?.setHex(od?0xffe600:0x00ffc8);
-      return;
-    }
 
     // Model position and rotation
     const bob=(this.py>1)?0:Math.sin(performance.now()*0.003)*1.5;
@@ -7369,8 +7382,8 @@ function startGame(levelIdx){
   if(GS.zone===-3){ player.wx=200; player.wz=200; }
   else if(GS.zone===-4){
     player.wx=400; player.wz=400; player.py=0;
-    _gPos=null; _gVel=null; _gState='ground'; _gPlanet=null;
-    _gUp=new THREE.Vector3(0,1,0); _gFacing=null;
+    _gPos=null; _gVel=null; _g3D=false; _gPlanet=null; _gOnSurface=false;
+    _gUp=new THREE.Vector3(0,1,0); _gN=new THREE.Vector3(0,1,0); _gQ=new THREE.Quaternion();
   }  else { player.wx=0; player.wz=0; }
   grid.setZone(GS.zone);
   // Spawn alien plants scattered around the arena
@@ -8734,8 +8747,8 @@ jR.onHoldEnd=function(){
       player._charging=false;
       player._chargeStart=0;
       // Fire the jump directly here — don't rely on onTap
-      if(_gOnSurface&&_gState==='planet'){
-        // Planet jump
+      if(_gOnSurface){
+        // Planet jump (charge carried via _jumpCharge; momentum handled in updateGalaxy)
         player._jumpTapped=true;
         setTimeout(()=>{ if(player){ player._jumpTapped=false; player._jumpCharge=0; } },80);
       } else {
@@ -8848,7 +8861,7 @@ function loop(ts){ requestAnimationFrame(loop);
     // Tick robot animation mixer
     if(player&&player._mixer){
       if(scene._robotLight) scene._robotLight.position.set(player.wx,player.py+20,player.wz);
-      const spd=Math.hypot(player.vx,player.vz);
+      let spd=Math.hypot(player.vx,player.vz);
       player._mixer.update(dt);
 
       // ── Procedural arm IK — runs after mixer so it overrides bone rotations ──
@@ -8860,13 +8873,21 @@ function loop(ts){ requestAnimationFrame(loop);
         const wallPushing=GS_movingWall&&GS_movingWall._grabbed;
         const aimAngle=player.aim;
         let angleDiff=((moveAngle-aimAngle+Math.PI)%(Math.PI*2)+Math.PI*2)%(Math.PI*2)-Math.PI;
-        // When wall-pushing, player velocity is zeroed — use stick input instead
-        const stickMagForAnim=wallPushing?Math.hypot(moveIn.x,moveIn.y):0;
+        // ── GALAXY: drive locomotion by tangential surface speed (always forward, never reversed) ──
+        if(player._inPlanetGravity){ spd=player._galSpeed||0; angleDiff=0; }
+        // When wall-pushing, player velocity is zeroed — use stick/key input instead
+        let si=moveIn;
+        if(!IS_TOUCH){ // desktop: synthesize a stick vector from WASD
+          let kx=0,ky=0;
+          if(keys['KeyW']||keys['ArrowUp'])ky-=1; if(keys['KeyS']||keys['ArrowDown'])ky+=1;
+          if(keys['KeyA']||keys['ArrowLeft'])kx-=1; if(keys['KeyD']||keys['ArrowRight'])kx+=1;
+          si={x:kx,y:ky};
+        }
+        const stickMagForAnim=wallPushing?Math.hypot(si.x,si.y):0;
         const moving=wallPushing ? stickMagForAnim>0.2 : spd>20;
 
         // Wall push: use raw stick input for angleDiff — player velocity is zeroed
         if(wallPushing&&moving){
-          const si=moveIn;
           const absX=Math.abs(si.x), absY=Math.abs(si.y);
           if(absY>=absX){
             // Stick up (si.y negative on mobile) = pushing wall forward = run_forward
@@ -9005,25 +9026,31 @@ function loop(ts){ requestAnimationFrame(loop);
 
         // ── WALL CLIMB ANIMATION ──
         if(player._wallClimb&&ud.clips){
-          const climbClip=ud.clips['climbing']||ud.clips['climb']||ud.clips['wall_climb'];
+          const wc=player._wallClimb;
+          // raw climb input (touch left-stick OR desktop WASD)
+          let aIy=0, aIx=0;
+          if(IS_TOUCH){ aIy=moveIn.y; aIx=moveIn.x; }
+          else { if(keys['KeyW']||keys['ArrowUp'])aIy-=1; if(keys['KeyS']||keys['ArrowDown'])aIy+=1;
+                 if(keys['KeyA']||keys['ArrowLeft'])aIx-=1; if(keys['KeyD']||keys['ArrowRight'])aIx+=1; }
+          const climbDir=-aIy;                 // + = up, - = down
+          const moving=Math.abs(climbDir)>0.1 || Math.abs(aIx)>0.1;
+          // optional corner clip while rounding a corner (falls back to climb clip)
+          const cornerClip = (wc.corner>0) && (ud.clips['climb_corner']||ud.clips['corner']);
+          const climbClip = cornerClip || ud.clips['climbing']||ud.clips['climb']||ud.clips['wall_climb'];
           if(climbClip&&climbClip._clip&&climbClip._clip.duration>0){
-            const climbDir=-moveIn.y; // positive = climbing up, negative = down
-            if(Math.abs(climbDir)>0.1){
-              // Switch to climb clip if not already on it
-              if(ud.currentClip!=='climbing'&&ud.currentClip!=='climb'&&ud.currentClip!=='wall_climb'){
-                Object.values(ud.clips).forEach(a=>a.fadeOut(0.15));
-                climbClip.reset().setEffectiveWeight(1).fadeIn(0.15).play();
-                ud.currentClip='climbing';
-              }
-              // Forward = climb up, reverse = climb down
-              climbClip.setEffectiveTimeScale(climbDir>0 ? 2.5 : -2.5);
-              // If reversed, make sure we're not at time=0 (would freeze)
-              if(climbDir<0&&climbClip.time<=0.01){
-                climbClip.time=climbClip._clip.duration;
-              }
+            const wantName = cornerClip ? 'climb_corner' : 'climbing';
+            if(ud.currentClip!=='climbing'&&ud.currentClip!=='climb'&&ud.currentClip!=='wall_climb'&&ud.currentClip!=='climb_corner'){
+              Object.values(ud.clips).forEach(a=>a.fadeOut(0.15));
+              climbClip.reset().setEffectiveWeight(1).fadeIn(0.15).play();
+              ud.currentClip=wantName;
+            }
+            if(moving){
+              // vertical drives timescale sign; lateral-only plays gently forward
+              let ts = Math.abs(climbDir)>0.1 ? (climbDir>0?2.5:-2.5) : 1.2;
+              climbClip.setEffectiveTimeScale(ts);
+              if(ts<0&&climbClip.time<=0.01) climbClip.time=climbClip._clip.duration;
             } else {
-              // Stopped on wall — pause clip
-              if(climbClip.isRunning()) climbClip.setEffectiveTimeScale(0);
+              if(climbClip.isRunning()) climbClip.setEffectiveTimeScale(0); // hang
             }
           }
         }
@@ -9506,8 +9533,8 @@ function loop(ts){ requestAnimationFrame(loop);
               }
             }
           }
-          // Player collision — skip when grabbed
-          if(player&&!w._grabbed){
+          // Player collision — skip when grabbed, and skip the climbable tower while climbing/mantling
+          if(player&&!w._grabbed&&!(w._climbable&&(player._wallClimb||player._crestSeq))){
             const halfW=w.w/2, halfD=w.d/2, halfH=w.h;
             const dx=player.wx-w.wx, dz=player.wz-w.wz;
             const overlapX=halfW+10-Math.abs(dx);
@@ -9543,136 +9570,150 @@ function loop(ts){ requestAnimationFrame(loop);
           // Tick climb cooldown
           if(player._wallClimbCooldown>0) player._wallClimbCooldown--;
 
-          // ── WALL CLIMBING SYSTEM ──
-          // Safety: clear stale states
-          if(player._wallClimb||player._crestSeq){
-            const distToTower=Math.hypot(player.wx-t.wx, player.wz-t.wz);
-            if(distToTower>t.w/2+80){ player._wallClimb=null; player._crestSeq=null; }
-          }
-          // Crest timeout safety — if stuck for >2s, force complete
-          if(player._crestSeq){
-            if(!player._crestSeq._total) player._crestSeq._total=0;
-            player._crestSeq._total+=(dt||0.016);
-            if(player._crestSeq._total>2){
-              player._crestSeq=null; player._wallClimb=null;
-              player._onPlatform=true; player._platformY=t.h;
-              player.py=t.h; player.vx=0; player.vz=0; player.pvy=0;
-              player._wallClimbCooldown=45;
-            }
-          }
+          // ══ WALL CLIMB — auto-attach by proximity, lateral + corner traversal, lip mantle ══
+          // Tunables
+          const FACE_OFF    = 2;            // gap player centre sits off the face plane
+          const MANTLE_FROM = 26;           // climb caps this far below the top; head reaches the lip here
+          const CLIMB_SPD   = 58;           // vertical climb speed (units/sec)
+          const LAT_SPD     = 46;           // lateral speed along a face (units/sec)
+          const EDGE_MARGIN = 5;            // how close to a vertical edge before a corner transition
+          const CORNER_INSET= 5;            // where you land on the new face after rounding a corner
+          const ATTACH_PLANE= 16;           // attach when this close to the face plane (collision rests ~10 out)
+          const hw2 = t.w/2, hd2 = t.d/2;
 
-          // TOP EDGE → CLIMB: only when actually falling off
-          if(!player._wallClimb&&!player._crestSeq&&!player._wallClimbCooldown&&
-             !player._onPlatform&&player.pvy<=0&&
-             player.py<t.h&&player.py>t.h-25){
-            const overX=Math.abs(player.wx-t.wx)<t.w/2+20;
-            const overZ=Math.abs(player.wz-t.wz)<t.d/2+20;
-            if(overX&&overZ){
-              const faceX=Math.abs(player.wx-t.wx)/(t.w/2);
-              const faceZ=Math.abs(player.wz-t.wz)/(t.d/2);
-              const faceNX=faceX>=faceZ?Math.sign(player.wx-t.wx):0;
-              const faceNZ=faceX>=faceZ?0:Math.sign(player.wz-t.wz);
-              if(faceNX!==0) player.wx=t.wx+faceNX*(t.w/2+2);
-              else player.wz=t.wz+faceNZ*(t.d/2+2);
-              player.py=t.h-2; player.pvy=0; player.vx=0; player.vz=0;
-              player._wallClimb={faceNX,faceNZ};
-            }
-          }
+          // Raw climb input (touch left-stick OR desktop WASD) — cy<0 = up, cx = lateral
+          let cIx=0, cIy=0;
+          if(IS_TOUCH){ cIx=moveIn.x; cIy=moveIn.y; }
+          else { if(keys['KeyW']||keys['ArrowUp'])cIy-=1; if(keys['KeyS']||keys['ArrowDown'])cIy+=1;
+                 if(keys['KeyA']||keys['ArrowLeft'])cIx-=1; if(keys['KeyD']||keys['ArrowRight'])cIx+=1; }
 
-          // CLIMB ATTACH — any right stick push near tower
-          if(!player._wallClimb&&!player._crestSeq&&player.py<t.h-5){
-            const stickMag=Math.hypot(shootIn.x,shootIn.y);
-            const nearFace=Math.abs(player.wx-t.wx)<t.w/2+35&&Math.abs(player.wz-t.wz)<t.d/2+35;
-            if(stickMag>0.25&&nearFace){
-              const faceX=Math.abs(player.wx-t.wx)/(t.w/2);
-              const faceZ=Math.abs(player.wz-t.wz)/(t.d/2);
-              const faceNX=faceX>=faceZ?Math.sign(player.wx-t.wx):0;
-              const faceNZ=faceX>=faceZ?0:Math.sign(player.wz-t.wz);
-              if(faceNX!==0) player.wx=t.wx+faceNX*(t.w/2+2);
-              else player.wz=t.wz+faceNZ*(t.d/2+2);
+          const glueFace=(nx,nz)=>{ if(nx!==0) player.wx=t.wx+nx*(hw2+FACE_OFF); else player.wz=t.wz+nz*(hd2+FACE_OFF); };
+          const nearestFace=()=>{ const fx=Math.abs(player.wx-t.wx)/hw2, fz=Math.abs(player.wz-t.wz)/hd2;
+            return fx>=fz ? {nx:Math.sign(player.wx-t.wx)||1,nz:0} : {nx:0,nz:Math.sign(player.wz-t.wz)||1}; };
+
+          // ── AUTO-ATTACH: walk/jump into a climbable face (no right stick needed) ──
+          if(!player._wallClimb && !player._crestSeq && !player._wallClimbCooldown &&
+             !player._onPlatform && player.py < t.h-MANTLE_FROM*0.5){
+            const f=nearestFace();
+            const distToPlane = f.nx!==0 ? Math.abs(player.wx-t.wx)-hw2 : Math.abs(player.wz-t.wz)-hd2;
+            const lateralOK   = f.nx!==0 ? Math.abs(player.wz-t.wz)<hd2+8 : Math.abs(player.wx-t.wx)<hw2+8;
+            const wmove = IS_TOUCH?rotInput(moveIn.x,moveIn.y):keyMoveVec();
+            const towardFace = (wmove.x*f.nx + wmove.z*f.nz) < -0.08;   // any push INTO the wall
+            const inputMag   = Math.hypot(wmove.x,wmove.z);
+            if(distToPlane < ATTACH_PLANE && lateralOK && ((towardFace&&inputMag>0.2) || player.pvy>40)){
+              glueFace(f.nx,f.nz);
               player.vx=0; player.vz=0; player.pvy=0;
-              player._wallClimb={faceNX,faceNZ};
+              player._wallClimb={faceNX:f.nx, faceNZ:f.nz, mount:0.14}; // mount = brief entry ease (hook 'mount' clip)
+              player.aim=Math.atan2(-f.nz,-f.nx);
             }
           }
 
-          // CLIMBING STATE
-          if(player._wallClimb&&!player._crestSeq){
+          // ── TOP-EDGE GRAB: falling past the top over the footprint → grab the lip and hang ──
+          if(!player._wallClimb && !player._crestSeq && !player._wallClimbCooldown &&
+             !player._onPlatform && player.pvy<=0 && player.py<t.h && player.py>t.h-30){
+            const overX=Math.abs(player.wx-t.wx)<hw2+18, overZ=Math.abs(player.wz-t.wz)<hd2+18;
+            if(overX&&overZ){
+              const f=nearestFace();
+              glueFace(f.nx,f.nz);
+              player.py=t.h-MANTLE_FROM; player.pvy=0; player.vx=0; player.vz=0;
+              player._wallClimb={faceNX:f.nx, faceNZ:f.nz, mount:0};
+              player.aim=Math.atan2(-f.nz,-f.nx);
+            }
+          }
+
+          // ── CLIMBING STATE ──
+          if(player._wallClimb && !player._crestSeq){
             const wc=player._wallClimb;
-            // Force jetpack off — climbing uses right stick, not jetpack
-            player._jetting=false;
-            jR._holdingForJet=false;
-            // Glue to face
-            if(wc.faceNX!==0) player.wx=t.wx+wc.faceNX*(t.w/2+2);
-            else player.wz=t.wz+wc.faceNZ*(t.d/2+2);
+            player._jetting=false; jR._holdingForJet=false;
+            glueFace(wc.faceNX, wc.faceNZ);              // pin to face plane (lateral axis stays free)
             player.vx=0; player.vz=0; player.pvy=0;
             player.aim=Math.atan2(-wc.faceNZ,-wc.faceNX);
+            if(wc.mount>0) wc.mount-=dt;                 // brief entry ease before input takes over
 
-            // Release when right stick drops — player falls
-            const stickMag=Math.hypot(shootIn.x,shootIn.y);
-            if(stickMag<0.15){
-              player._wallClimb=null;
+            // Jump = leap off (outward + up)
+            if(player._jumpTapped){
+              player.vx=wc.faceNX*200; player.vz=wc.faceNZ*200; player.pvy=210;
+              player._wallClimb=null; player._jumpTapped=false; player._wallClimbCooldown=24;
               const ud2=player.model&&player.model.userData;
               if(ud2&&ud2.clips){const cc=ud2.clips['climbing']||ud2.clips['climb']||ud2.clips['wall_climb'];if(cc)cc.fadeOut(0.15);ud2.currentClip=null;}
-            } else {
-              // Left stick Y = climb up/down
-              player.py+=(-moveIn.y)*40*dt;
-              player.py=Math.max(0,Math.min(t.h,player.py));
+            } else if(wc.mount<=0){
+              // ── VERTICAL ──
+              player.py += (-cIy)*CLIMB_SPD*dt;
+              player.py = Math.max(0, Math.min(t.h-MANTLE_FROM, player.py)); // never float past the lip
 
-              // Near top + holding up = start crest
-              if(player.py>=t.h-8&&moveIn.y<-0.2){
-                player._crestSeq={phase:'up',timer:0,
-                  faceNX:wc.faceNX,faceNZ:wc.faceNZ,
-                  startY:player.py};
+              // ── LATERAL along the current face ──
+              if(Math.abs(cIx)>0.05){
+                if(wc.faceNX!==0) player.wz += wc.faceNX * cIx * LAT_SPD * dt;   // X-face → lateral axis Z
+                else              player.wx += (-wc.faceNZ) * cIx * LAT_SPD * dt; // Z-face → lateral axis X
+              }
+              // edge / corner handling
+              const onXFace = wc.faceNX!==0;
+              const latPos  = onXFace ? (player.wz-t.wz) : (player.wx-t.wx);
+              const halfLat = onXFace ? hd2 : hw2;
+              if(Math.abs(latPos) > halfLat - EDGE_MARGIN){
+                const edgeSign = Math.sign(latPos);
+                // round the corner onto the adjacent face (X-face ↔ Z-face)
+                let nx,nz;
+                if(onXFace){ nx=0; nz=edgeSign; }   // exceeded ±Z edge → new normal ±Z
+                else       { nx=edgeSign; nz=0; }   // exceeded ±X edge → new normal ±X
+                glueFace(nx,nz);
+                // land at the shared corner on the new face, just inside the edge
+                if(onXFace) player.wx = t.wx + wc.faceNX*(hw2 - CORNER_INSET);
+                else        player.wz = t.wz + wc.faceNZ*(hd2 - CORNER_INSET);
+                wc.faceNX=nx; wc.faceNZ=nz; wc.corner=0.12; // corner hook (play 'corner' clip)
+                player.aim=Math.atan2(-nz,-nx);
+              } else {
+                // clamp inside the face
+                const clamped = Math.max(-(halfLat-EDGE_MARGIN), Math.min(halfLat-EDGE_MARGIN, latPos));
+                if(onXFace) player.wz=t.wz+clamped; else player.wx=t.wx+clamped;
+              }
+              if(wc.corner>0) wc.corner-=dt;
+
+              // ── REACH LIP → MANTLE ──
+              if(player.py >= t.h-MANTLE_FROM-0.5 && cIy<-0.2){
+                player._crestSeq={phase:'mantle', timer:0,
+                  faceNX:wc.faceNX, faceNZ:wc.faceNZ,
+                  startY:player.py, startX:player.wx, startZ:player.wz};
                 player._wallClimb=null;
               }
 
-              // Bottom = drop
-              if(player.py<=1){
-                player.py=0; player._wallClimb=null;
+              // ── BOTTOM → drop off only when actively pushing DOWN (so attaching at ground climbs up) ──
+              if(player.py<=1 && cIy>0.25){
+                player.py=0; player._wallClimb=null; player._wallClimbCooldown=18;
                 const ud2=player.model&&player.model.userData;
                 if(ud2&&ud2.clips){const cc=ud2.clips['climbing']||ud2.clips['climb']||ud2.clips['wall_climb'];if(cc)cc.fadeOut(0.2);ud2.currentClip=null;}
-              }
-
-              // Jump = leap off
-              if(player._jumpTapped){
-                player.vx=wc.faceNX*180;player.vz=wc.faceNZ*180;player.pvy=200;
-                player._wallClimb=null;player._jumpTapped=false;
-                const ud2=player.model&&player.model.userData;
-                if(ud2&&ud2.clips){const cc=ud2.clips['climbing']||ud2.clips['climb']||ud2.clips['wall_climb'];if(cc)cc.fadeOut(0.15);ud2.currentClip=null;}
-              }
+              } else if(player.py<0){ player.py=0; }
             }
           }
 
-          // CREST SEQUENCE — scripted takeover
+          // ── MANTLE / CREST — scripted pull-over onto the top (hook 'mantle'/'vault'/'climb_over') ──
           if(player._crestSeq){
             const cs=player._crestSeq;
-            player.vx=0;player.vz=0;player.pvy=0;
+            player.vx=0; player.vz=0; player.pvy=0;
             cs.timer+=dt;
-            if(cs.phase==='up'){
-              const p=Math.min(cs.timer/0.18,1);
-              player.py=lerp(cs.startY,t.h,p);
-              if(p>=1){
-                cs.phase='in';cs.timer=0;
-                cs.inStartX=player.wx;cs.inStartZ=player.wz;
-                cs.inEndX=t.wx+cs.faceNX*(t.w/2-1);
-                cs.inEndZ=t.wz+cs.faceNZ*(t.d/2-1);
-              }
-            } else {
-              const p=Math.min(cs.timer/0.18,1);
-              player.wx=lerp(cs.inStartX,cs.inEndX,p);
-              player.wz=lerp(cs.inStartZ,cs.inEndZ,p);
-              player.py=t.h;
-              if(p>=1){
-                player._crestSeq=null;
-                player._onPlatform=true;player._platformY=t.h;
-                player.vx=0;player.vz=0;player.pvy=0;
-                player._wallClimbCooldown=45;
-                const ud2=player.model&&player.model.userData;
-                if(ud2&&ud2.clips){const cc=ud2.clips['climbing']||ud2.clips['climb']||ud2.clips['wall_climb'];if(cc)cc.fadeOut(0.2);ud2.currentClip=null;}
-              }
+            const DUR=0.40;                       // match your mantle clip length
+            const p=Math.min(cs.timer/DUR,1);
+            const ease=p<0.5 ? 2*p*p : 1-Math.pow(-2*p+2,2)/2; // smoothstep-ish
+            // target = standing on top, pulled slightly inward from the lip
+            const topX = t.wx + cs.faceNX*(hw2 - CORNER_INSET);
+            const topZ = t.wz + cs.faceNZ*(hd2 - CORNER_INSET);
+            player.py = lerp(cs.startY, t.h, ease);
+            player.wx = lerp(cs.startX, topX, ease);
+            player.wz = lerp(cs.startZ, topZ, ease);
+            if(p>=1){
+              player._crestSeq=null;
+              player._onPlatform=true; player._platformY=t.h;
+              player.py=t.h; player.vx=0; player.vz=0; player.pvy=0;
+              player._wallClimbCooldown=30;
+              const ud2=player.model&&player.model.userData;
+              if(ud2&&ud2.clips){const cc=ud2.clips['climbing']||ud2.clips['climb']||ud2.clips['wall_climb'];if(cc)cc.fadeOut(0.2);ud2.currentClip=null;}
             }
           }
 
+          // Safety: clear stale climb states if somehow far from the tower
+          if((player._wallClimb||player._crestSeq) && Math.hypot(player.wx-t.wx,player.wz-t.wz) > t.w/2+90){
+            player._wallClimb=null; player._crestSeq=null;
+          }
           // Tick cooldown
           if(player._wallClimbCooldown>0) player._wallClimbCooldown--;
         } // end for GS_moveableWalls
@@ -9803,7 +9844,7 @@ class MoveableWall{
       color:#aa44ff;pointer-events:none;z-index:12;text-align:center;
       background:rgba(0,0,0,0.5);padding:4px 10px;border-radius:6px;border:1px solid #aa44ff66;
       transform:translate(-50%,-50%);display:none;text-shadow:0 0 8px #aa44ff`;
-    this._promptEl.innerHTML=this._climbable?(IS_TOUCH?'PUSH TOWARD · CLIMB':'PUSH TOWARD · CLIMB'):(IS_TOUCH?'PUSH RIGHT STICK · GRAB':'[R-CLICK] GRAB');
+    this._promptEl.innerHTML=this._climbable?(IS_TOUCH?'WALK INTO TOWER · CLIMB':'WALK INTO TOWER · CLIMB'):(IS_TOUCH?'PUSH RIGHT STICK · GRAB':'[R-CLICK] GRAB');
     document.body.appendChild(this._promptEl);
     this._showPrompt=false;
   }
@@ -10178,54 +10219,53 @@ function updatePlanetDeform(pl,dt){
 }
 
 
-// ── GALAXY PHYSICS ──
+// ── GALAXY PHYSICS — velocity-driven 3D, continuous gravity ──
+// Authoritative state while in galaxy: _gPos + _gVel are ALWAYS the truth and
+// are never zeroed. Running builds real tangential momentum; jumping preserves
+// it and adds a radial pop (the Mario Galaxy momentum jump). Gravity is
+// continuous — whichever planet's pull dominates wins, so leaving one and
+// falling to another is automatic. No capture-radius shell to bounce off.
 let _gPos=null, _gVel=null;
-let _gState='ground';
-let _gPlanet=null, _gOnSurface=false;
+let _g3D=false;                 // are we in 3D galaxy physics (on/around a planet)?
+let _gPlanet=null;              // current dominant planet (for camera framing)
+let _gOnSurface=false;          // touching a surface this frame
 let _gUp=new THREE.Vector3(0,1,0);
 let _gQ=new THREE.Quaternion();
-let _gFacing=null;
-const _G_GRAV=300;
-const _G_CAPTURE=1.8;
-const _G_PR=18;
+let _gN=new THREE.Vector3(0,1,0); // current gravity-up (surface normal)
 
-function updateGravityState(){
-  if(!player) return;
-  if(!_gPos) return;
-  if(_gState==='ground'){
-    if(player.py>8){
-      for(const pl of _galaxyPlanets){
-        const d=_gPos.distanceTo(new THREE.Vector3(pl.wx,pl.wy,pl.wz));
-        if(d<pl.r*_G_CAPTURE){
-          _gState='planet'; _gPlanet=pl;
-          _gVel.set(player.vx,player.pvy,player.vz);
-          _gFacing=null;
-          break;
-        }
-      }
-    }
-  } else {
-    const plp2=new THREE.Vector3(_gPlanet.wx,_gPlanet.wy,_gPlanet.wz);
-    const d=_gPos.distanceTo(plp2);
-    if(d>_gPlanet.r*_G_CAPTURE){
-      // Only escape if actually moving away fast enough
-      const outDir=_gPos.clone().sub(plp2).normalize();
-      const outSpeed=_gVel.dot(outDir);
-      if(outSpeed>50){ _gState='ground'; _gPlanet=null; }
-      // Otherwise stay captured — gravity pulls back
-    } else {
-      for(const pl of _galaxyPlanets){
-        if(pl===_gPlanet) continue;
-        const d2=_gPos.distanceTo(new THREE.Vector3(pl.wx,pl.wy,pl.wz));
-        if(d2<pl.r*_G_CAPTURE&&d2<d){ _gPlanet=pl; _gFacing=null; }
-      }
+// ── TUNABLES ──
+const _G_GRAV       = 720;   // gravity accel toward planet centre
+const _G_PR         = 18;    // player "foot" offset above surface
+const _G_INFLU      = 3.0;   // a planet pulls you when dist < r * this
+const _G_MOVE_ACCEL = 950;   // tangential running accel
+const _G_MAX_SPD    = 230;   // top running speed on a surface
+const _G_FRICTION   = 0.80;  // per-frame velocity retention when no input (grounded)
+const _G_JUMP_BASE  = 280;   // tap-jump radial impulse
+const _G_JUMP_RANGE = 460;   // extra radial impulse at full charge (hold)
+const _G_AIR_CAP    = 760;   // max speed in flight
+const _G_JET        = 900;   // jetpack accel (along up) — boost-fuel based, for hover after launch
+const _G_GROUND_Y   = _G_PR; // y at/below which "in orbit of none" lands back on the flat grid
+
+// Returns the dominant planet at a world position, or null if none in range.
+function _dominantPlanet(p){
+  let best=null, bestPull=0;
+  for(const pl of _galaxyPlanets){
+    const dx=p.x-pl.wx, dy=p.y-pl.wy, dz=p.z-pl.wz;
+    const d=Math.sqrt(dx*dx+dy*dy+dz*dz)||1;
+    if(d < pl.r*_G_INFLU){
+      const pull=pl.r/d;              // closer + bigger = stronger
+      if(pull>bestPull){ bestPull=pull; best=pl; }
     }
   }
+  return best;
 }
 
 function updateGalaxy(dt){
   if(!_galaxyPlanets?.length||!player) return;
+  const UP=new THREE.Vector3(0,1,0);
+  const _G_AIR_STEER=300;  // mid-air tangential steering accel
 
+  // Ambient spin + line shimmer + spring relax
   _galaxyPlanets.forEach((pl,i)=>{
     if(pl.wire) pl.wire.rotation.y+=dt*0.04*(i%2?1:-1);
     updatePlanetDeform(pl,dt);
@@ -10233,146 +10273,161 @@ function updateGalaxy(dt){
 
   if(!_gPos){ _gPos=new THREE.Vector3(player.wx,player.py,player.wz); _gVel=new THREE.Vector3(); }
 
-  updateGravityState();
+  // Nearest planet by SURFACE distance (always defined once in 3D — you can never fall into the void)
+  const nearest=()=>{ let best=null,bd=Infinity;
+    for(const pl of _galaxyPlanets){ const dx=_gPos.x-pl.wx,dy=_gPos.y-pl.wy,dz=_gPos.z-pl.wz;
+      const d=Math.sqrt(dx*dx+dy*dy+dz*dz)-pl.r; if(d<bd){bd=d;best=pl;} } return best; };
 
-  if(_gState==='ground'){
-    player._inPlanetGravity=false;
-    _gOnSurface=false;
+  // ── ENTER 3D MODE: only when jumping up near a planet (capture-radius gate) ──
+  if(!_g3D){
     _gPos.set(player.wx,player.py,player.wz);
     _gVel.set(player.vx,player.pvy,player.vz);
-    if(player.model&&_gQ.w<0.9995){
-      _gQ.slerp(new THREE.Quaternion(),0.07);
-      player.model.quaternion.copy(_gQ);
-    } else if(player.model){ _gQ.set(0,0,0,1); }
-    _gUp.lerp(new THREE.Vector3(0,1,0),0.07).normalize();
-    return;
+    const dom = player.py>12 ? _dominantPlanet(_gPos) : null;
+    if(dom){
+      _g3D=true; _gPlanet=dom; _gOnSurface=false;
+      _gQ.copy(player.model?player.model.quaternion.clone():new THREE.Quaternion());
+    } else {
+      player._inPlanetGravity=false; _gOnSurface=false;
+      _gUp.lerp(UP,0.07).normalize();
+      return;
+    }
   }
 
-  // PLANET physics
-  const plp=new THREE.Vector3(_gPlanet.wx,_gPlanet.wy,_gPlanet.wz);
-  const toP=_gPos.clone().sub(plp);
-  const dist=toP.length()||1;
-  const N=toP.clone().normalize();
-  const surfD=_gPlanet.r+_G_PR;
+  // ── DOMINANT = NEAREST (no void escape) ──
+  const dom=nearest(); _gPlanet=dom;
+  const center=new THREE.Vector3(dom.wx,dom.wy,dom.wz);
+  let dist=_gPos.distanceTo(center)||1;
+  const N=_gPos.clone().sub(center).divideScalar(dist);
+  const surfD=dom.r+_G_PR;
+  _gN.copy(N);
 
-  const wasOnSurface=_gOnSurface;
-  if(dist<=surfD+1){
-    if(!wasOnSurface&&_gVel.length()>80) planetShock(_gPlanet,N,10);
-    _gOnSurface=true;
-    player._onPlatform=true;
-    _gPos.copy(plp).addScaledVector(N,surfD);
-    _gVel.set(0,0,0);
-  } else {
-    _gOnSurface=false;
-    player._onPlatform=false;
-    _gVel.addScaledVector(N,-_G_GRAV*dt);
-    if(_gVel.length()>600) _gVel.setLength(600);
+  // ── MOVEMENT INPUT → tangent direction (screen-relative) ──
+  const rawIn = IS_TOUCH ? rotInput(moveIn.x,moveIn.y) : keyMoveVec();
+  const inMag = Math.hypot(rawIn.x,rawIn.z);
+  let tangentMove=null;
+  if(inMag>0.05){
+    const wd=new THREE.Vector3(rawIn.x,0,rawIn.z);
+    wd.addScaledVector(N,-wd.dot(N));
+    if(wd.lengthSq()>1e-4) tangentMove=wd.normalize();
+  }
+
+  if(_gOnSurface){
+    // ── ON SURFACE — walk, re-project to sphere every frame (anti-jitter), jump ──
+    if(tangentMove) _gVel.addScaledVector(tangentMove,_G_MOVE_ACCEL*Math.min(1,inMag)*dt);
+    _gVel.addScaledVector(N,-_gVel.dot(N));        // keep velocity purely tangential while grounded
+    if(!tangentMove) _gVel.multiplyScalar(_G_FRICTION);
+    if(_gVel.length()>_G_MAX_SPD) _gVel.setLength(_G_MAX_SPD);
     _gPos.addScaledVector(_gVel,dt);
-  }
-
-  // Jump — charge set by touch hold duration
-  if(player._jumpTapped&&_gOnSurface){
-    const charge=player._jumpCharge||0;
-    const launchVel=300+charge*500;
-    _gPos.copy(plp).addScaledVector(N,surfD+4);
-    // Zero any velocity going INTO planet before adding launch impulse
-    const vdotN=_gVel.dot(N);
-    if(vdotN<0) _gVel.addScaledVector(N,-vdotN); // remove inward component
-    _gVel.addScaledVector(N, launchVel);
-    _gOnSurface=false; player._onPlatform=false;
-    player._jumpTapped=false; player._jumpCharge=0;
-    planetShock(_gPlanet,N,8+charge*20);
-    Audio.blip(300+charge*200,0.5,'sine',0.15,600);
-  }
-
-  // Jetpack — only when airborne
-  if(player._jetting&&!_gOnSurface&&player.boostFuel>0){
-    _gVel.addScaledVector(N,900*dt);
-    player.boostFuel=Math.max(0,player.boostFuel-45*dt);
-  } else if(_gOnSurface){
+    const radialDir=_gPos.clone().sub(center).normalize();         // capture BEFORE overwriting _gPos
+    _gPos.copy(center).addScaledVector(radialDir,surfD);           // glue to sphere
+    player._onPlatform=true;
+    player._galSpeed=_gVel.length();
     player.boostFuel=Math.min(player.boostMax,player.boostFuel+40*dt);
+
+    // footstep ripples
+    if(tangentMove){ player._galStepT=(player._galStepT||0)-dt;
+      if(player._galStepT<=0){ planetShock(dom,N,3); player._galStepT=0.28; } }
+
+    // JUMP — preserve tangential momentum, add radial pop (charge = hold)
+    if(player._jumpTapped){
+      const charge=player._jumpCharge||0;
+      const launch=_G_JUMP_BASE+charge*_G_JUMP_RANGE;
+      _gPos.addScaledVector(N,4);
+      _gVel.addScaledVector(N,launch);
+      _gOnSurface=false; player._onPlatform=false;
+      player._jumpTapped=false; player._jumpCharge=0;
+      planetShock(dom,N,8+charge*16);
+      Audio.blip(300+charge*220,0.45,'sine',0.14,560);
+    }
   } else {
-    player.boostFuel=Math.min(player.boostMax,player.boostFuel+8*dt);
-  }
+    // ── AIRBORNE — gravity pulls to nearest planet, optional steering + jetpack ──
+    _gVel.addScaledVector(N,-_G_GRAV*dt);
+    if(tangentMove) _gVel.addScaledVector(tangentMove,_G_AIR_STEER*Math.min(1,inMag)*dt);
+    if(player._jetting && player.boostFuel>0){
+      _gVel.addScaledVector(N,_G_JET*dt);
+      player.boostFuel=Math.max(0,player.boostFuel-45*dt);
+      player._jetFlash=1;
+    } else {
+      player.boostFuel=Math.min(player.boostMax,player.boostFuel+8*dt);
+    }
+    if(_gVel.length()>_G_AIR_CAP) _gVel.setLength(_G_AIR_CAP);
+    _gPos.addScaledVector(_gVel,dt);
+    player._galSpeed=0;
 
-  // Movement on surface
-  if(!_gFacing){
-    _gFacing=new THREE.Quaternion();
-    const fwd=new THREE.Vector3(Math.cos(player.aim),0,Math.sin(player.aim));
-    const tf=fwd.clone().addScaledVector(N,-fwd.dot(N)).normalize();
-    if(tf.lengthSq()>0.01){
-      const tr=new THREE.Vector3().crossVectors(N,tf).normalize();
-      const m=new THREE.Matrix4().makeBasis(tr,N,tf.negate());
-      _gFacing.setFromRotationMatrix(m);
-      _gQ.copy(_gFacing);
+    // LAND?
+    const nd=_gPos.distanceTo(center);
+    if(nd<=surfD){
+      const Nl=_gPos.clone().sub(center).normalize();
+      const impact=Math.max(0,-_gVel.dot(Nl));
+      _gPos.copy(center).addScaledVector(Nl,surfD);
+      _gVel.addScaledVector(Nl,-_gVel.dot(Nl)); // kill inward, keep tangential
+      _gOnSurface=true; player._onPlatform=true;
+      if(impact>60) planetShock(dom,Nl,Math.min(22,4+impact*0.045));
+      if(impact>140) addTrauma(0.08);
+      Audio.blip(120,0.12,'sine',0.16,60);
     }
   }
 
-  const raw=IS_TOUCH?rotInput(moveIn.x,moveIn.y):keyMoveVec();
-  const mx=raw.x||0, mz=raw.z||0;
-  if(Math.abs(mx)>0.05||Math.abs(mz)>0.05){
-    if(Math.abs(mx)>0.05){
-      const rotQ=new THREE.Quaternion().setFromAxisAngle(N,-mx*2.0*dt);
-      _gFacing.premultiply(rotQ);
-    }
-    if(Math.abs(mz)>0.05){
-      const fwd3=new THREE.Vector3(0,0,1).applyQuaternion(_gFacing);
-      let tf=fwd3.clone().addScaledVector(N,-fwd3.dot(N)).normalize();
-      if(tf.lengthSq()>0.01){
-        const spd=_gOnSurface?200:80;
-        _gPos.addScaledVector(tf,-mz*spd*dt);
-        if(_gOnSurface) _gPos.sub(plp).normalize().multiplyScalar(surfD).add(plp);
-        player.aim=Math.atan2(tf.z,tf.x);
-      }
-    }
-    if(_gFacing){
-      const facingUp=new THREE.Vector3(0,1,0).applyQuaternion(_gFacing);
-      const corr=new THREE.Quaternion().setFromUnitVectors(facingUp,N);
-      _gFacing.premultiply(new THREE.Quaternion().slerp(corr,0.05)).normalize();
+  // ── ORIENTATION — up = N, forward = movement (or kept). RIGHT-HANDED basis. ──
+  let fwdTan;
+  if(tangentMove) fwdTan=tangentMove.clone();
+  else {
+    fwdTan=new THREE.Vector3(0,0,1).applyQuaternion(_gQ);
+    fwdTan.addScaledVector(N,-fwdTan.dot(N));
+    if(fwdTan.lengthSq()<1e-4){ fwdTan=new THREE.Vector3(1,0,0).applyQuaternion(_gQ); fwdTan.addScaledVector(N,-fwdTan.dot(N)); }
+    if(fwdTan.lengthSq()<1e-4) fwdTan.set(1,0,0);
+    fwdTan.normalize();
+  }
+  // model local +Z = forward, +Y = up → x = N × fwd gives a right-handed (det +1) basis
+  const xAxis=new THREE.Vector3().crossVectors(N,fwdTan).normalize();
+  const m=new THREE.Matrix4().makeBasis(xAxis,N,fwdTan);
+  const targetQ=new THREE.Quaternion().setFromRotationMatrix(m).normalize();
+  _gQ.slerp(targetQ,_gOnSurface?0.25:0.12).normalize();
+  _gUp.lerp(N,0.15).normalize();
+
+  // ── DIORAMA CAMERA ──
+  {
+    const camCenter=center.clone().addScaledVector(N,dom.r*0.5);
+    CAM.tfocus.copy(camCenter);
+    CAM.dist  =lerp(CAM.dist,  dom.r*4.4, 0.05);
+    CAM.height=lerp(CAM.height,dom.r*2.6, 0.05);
+    const flat=_gPos.clone().sub(center); flat.y=0;
+    if(flat.lengthSq()>1){
+      const desiredYaw=Math.atan2(flat.x,flat.z);
+      let dy=((desiredYaw-CAM.tyaw+Math.PI)%TAU+TAU)%TAU-Math.PI;
+      CAM.tyaw+=dy*0.02;
     }
   }
 
-  // Footstep ripples while moving on surface
-  if(_gOnSurface&&(Math.abs(mx)>0.05||Math.abs(mz)>0.05)){
-    if(!player._galStepT) player._galStepT=0;
-    player._galStepT-=dt;
-    if(player._galStepT<=0){ planetShock(_gPlanet,N,3); player._galStepT=0.3; }
-  }
-
-  // Smooth up
-  _gUp.lerp(N,0.08).normalize();
-
-  // Model rotation
+  // ── APPLY MODEL TRANSFORM (draw() early-returns in planet mode) ──
   if(player.model){
-    _gQ.slerp(_gFacing,0.15);
-    player.model.quaternion.copy(_gQ);
     player.model.position.set(_gPos.x,_gPos.y,_gPos.z);
+    player.model.quaternion.copy(_gQ);
     if(player.model.userData.turretGroup){
       player.model.userData.turretGroup.rotation.y=-player.aim-Math.PI/2;
     }
   }
 
-  // Bullet-planet collision
+  // ── BULLET ↔ PLANET collision (now also shocks the surface) ──
   if(GS.bullets){
     for(let i=GS.bullets.length-1;i>=0;i--){
       const b=GS.bullets[i]; if(!b||b.life<=0) continue;
+      const by = b.y!==undefined ? b.y : 9;
       for(const pl of _galaxyPlanets){
-        const dx=b.wx-pl.wx,dy=(b.y||0)-pl.wy,dz=b.wz-pl.wz;
+        const dx=b.wx-pl.wx, dy=by-pl.wy, dz=b.wz-pl.wz;
         const d=Math.sqrt(dx*dx+dy*dy+dz*dz);
         if(d<pl.r+4){
-          const nx=dx/d,ny=dy/d,nz=dz/d;
-          planetShock(pl,{x:nx,y:ny,z:nz},8);
-          b.life=0;
-          ps.burst(b.wx,b.wz,[0.3,0.8,1],5,40);
-          break;
+          const inv=1/(d||1);
+          planetShock(pl,{x:dx*inv,y:dy*inv,z:dz*inv},6);
+          b.life=0; ps.burst(b.wx,b.wz,[0.3,0.8,1],5,40); break;
         }
       }
     }
   }
 
-  // Write back
+  // ── WRITE BACK — velocity stays REAL so animation/aim are consistent ──
   player.wx=_gPos.x; player.py=_gPos.y; player.wz=_gPos.z;
-  player.vx=0; player.vz=0; player.pvy=0;
+  player.vx=_gVel.x; player.vz=_gVel.z; player.pvy=_gVel.y;
   player._inPlanetGravity=true;
 }
 
@@ -10422,6 +10477,8 @@ function buildPuzzleLab(){
     ];
     const curve=new THREE.CatmullRomCurve3(RAIL_POINTS);
     window._grindRail=curve;
+    // Cache sampled points once — avoids 100 getPoint() calls every frame during attach search
+    window._grindSamples=[]; for(let gi=0;gi<=100;gi++) window._grindSamples.push({t:gi/100, p:curve.getPoint(gi/100)});
 
     // Visual tube
     const tubeGeo=new THREE.TubeGeometry(curve,60,2,8,false);
@@ -10554,12 +10611,15 @@ function updateGrindRail(dt){
 
   if(!player._grinding&&!player._grindCooldown){
     let best=null, bestDist=Infinity;
-    for(let i=0;i<=100;i++){
-      const t=i/100, p=rail.getPoint(t);
-      const dxz=Math.hypot(player.wx-p.x, player.wz-p.z);
-      const dy=Math.abs((player.py-2)-p.y);
-      const d=Math.hypot(dxz,dy);
-      if(d<bestDist){ bestDist=d; best={t,p}; }
+    const samples=window._grindSamples;
+    if(samples){
+      for(let i=0;i<samples.length;i++){
+        const s=samples[i], p=s.p;
+        const dxz=Math.hypot(player.wx-p.x, player.wz-p.z);
+        const dy=Math.abs((player.py-2)-p.y);
+        const d=Math.hypot(dxz,dy);
+        if(d<bestDist){ bestDist=d; best={t:s.t,p}; }
+      }
     }
     if(bestDist<25&&best){
       const tan=rail.getTangent(best.t);
