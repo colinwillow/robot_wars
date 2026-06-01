@@ -11584,6 +11584,7 @@ function _startRobotViewer(canvasId, opts={}){
   const renderer=new THREE.WebGLRenderer({canvas,alpha:true,antialias:true});
   renderer.setSize(w*2,h*2,false);
   renderer.setClearColor(0x000000,0);
+  renderer.outputColorSpace=THREE.SRGBColorSpace; // fix blue rendering
 
   const sc=new THREE.Scene();
   const cam=new THREE.PerspectiveCamera(45,w/h,0.1,100);
@@ -11597,7 +11598,7 @@ function _startRobotViewer(canvasId, opts={}){
   let mixer=null, modelRoot=null;
 
   function onGltf(gltf){
-    const model=gltf.scene.clone(true);
+    const model=SkeletonUtils.clone(gltf.scene);
     const box=new THREE.Box3().setFromObject(model);
     const center=box.getCenter(new THREE.Vector3());
     const size=box.getSize(new THREE.Vector3());
@@ -11605,6 +11606,15 @@ function _startRobotViewer(canvasId, opts={}){
     model.scale.setScalar(s);
     model.position.sub(center.multiplyScalar(s));
     model.position.y+=(opts.yOffset||0);
+    // Same material fix as _applyRobotModel
+    model.traverse(c=>{
+      if((c.isSkinnedMesh||c.isMesh)&&c.material){
+        c.frustumCulled=false;
+        c.material.emissive=new THREE.Color(0x0044aa);
+        c.material.emissiveIntensity=1.5;
+        c.material.needsUpdate=true;
+      }
+    });
     modelRoot=new THREE.Group(); modelRoot.add(model); sc.add(modelRoot);
     if(gltf.animations&&gltf.animations.length>0){
       mixer=new THREE.AnimationMixer(model);
