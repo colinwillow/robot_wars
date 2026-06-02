@@ -237,6 +237,7 @@ canvas{display:block}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:6px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-D</div>
 </div>
 <div id="fp-crosshair"><div class="ch-t"></div><div class="ch-b"></div><div class="ch-l"></div><div class="ch-r"></div><div class="ch-dot"></div></div>
 
@@ -455,6 +456,8 @@ canvas{display:block}
         <div style="display:flex"><svg width="24" height="24" viewBox="0 0 24 24" stroke="#ffcc00" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#ffcc00;animation-delay:-1.7s"><rect x="3" y="11" width="4.5" height="10"/><rect x="9.5" y="4" width="5" height="17"/><rect x="16.5" y="13" width="4.5" height="8"/></svg></div><div style="font-size:9px;letter-spacing:2px;color:#ffcc00">GRID CITY</div></button>
       <button onclick="window._launchLevel(-7)" class="zone-btn" style="--c:#ff66cc;flex:1;min-width:90px">
         <div style="display:flex"><svg width="24" height="24" viewBox="0 0 24 24" stroke="#ff66cc" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#ff66cc;animation-delay:-0.9s"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg></div><div style="font-size:9px;letter-spacing:2px;color:#ff66cc">HOME BASE</div></button>
+      <button onclick="window._launchLevel(-8)" class="zone-btn" style="--c:#00ffc8;flex:1;min-width:90px">
+        <div style="display:flex"><svg width="24" height="24" viewBox="0 0 24 24" stroke="#00ffc8" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#00ffc8;animation-delay:-1.2s"><path d="M4 14l3 4h10l3-4"/><circle cx="8" cy="20" r="1.3"/><circle cx="16" cy="20" r="1.3"/></svg></div><div style="font-size:9px;letter-spacing:2px;color:#00ffc8">SKATE PARK</div></button>
     </div>
     <div style="font-family:'Orbitron',sans-serif;font-size:8px;letter-spacing:4px;color:#ffffff33;margin:8px 0 12px;text-align:center">── CAMPAIGN ZONES ──</div>
     <div id="ls-grid" style="width:100%;max-width:360px;padding:0 16px"></div>
@@ -1297,6 +1300,24 @@ class Grid3D{
     glow.rotation.x=-Math.PI/2; glow.position.y=0; scene.add(glow);
     this.disc=disc; this.glow=glow;
     this.shocks=[]; this.beat=0; this.hue=0;
+    this._gx=0; this._gz=0;   // world offset so the grid can follow the player (infinite GRID CITY)
+  }
+  // Toroidally scroll deformation state by whole cells so ripples stay world-locked as the grid recenters
+  _scrollGrid(dCol,dRow){
+    const nx=this.nx,nz=this.nz, RX=this.rx, RZ=this.rz;
+    const sh=(arr,pos,useZ)=>{
+      const out=new Float32Array(arr.length);
+      for(let r=0;r<nz;r++)for(let c=0;c<nx;c++){
+        const di=r*nx+c, sc=c+dCol, sr=r+dRow;
+        if(sc>=0&&sc<nx&&sr>=0&&sr<nz){
+          const si=sr*nx+sc;
+          out[di]= pos ? ((useZ?RZ[di]:RX[di]) + (arr[si]-(useZ?RZ[si]:RX[si]))) : arr[si];
+        } else { out[di]= pos ? (useZ?RZ[di]:RX[di]) : 0; }
+      }
+      arr.set(out);
+    };
+    sh(this.y,false); sh(this.vy,false); sh(this.vx,false); sh(this.vz,false);
+    sh(this.x,true,false); sh(this.z,true,true);
   }
 
   // ── PHYSICS: push/suck/shock move nodes in XZ ──
@@ -1306,7 +1327,7 @@ class Grid3D{
     if(cap<=0) return;
     const r2=radius*radius;
     for(let i=0;i<this.n;i++){
-      const dx=this.rx[i]-wx, dz=this.rz[i]-wz, d2=dx*dx+dz*dz;
+      const dx=this.rx[i]-(wx-this._gx), dz=this.rz[i]-(wz-this._gz), d2=dx*dx+dz*dz;
       if(d2<r2){
         const d=Math.sqrt(d2)||0.01, f=(1-d/radius)*strength*0.04*cap;
         const noise=Math.sin(i*3.1+strength*0.2)*0.3;
@@ -1340,6 +1361,19 @@ class Grid3D{
   sampleFloor(){ return 0; }
 
   update(dt){
+    // GRID CITY (-6): grid recenters on the player so the deforming floor is endless.
+    // Snap to G_CELL so the (periodic) line pattern shift is visually seamless.
+    if(typeof player!=='undefined'&&player&&typeof GS!=='undefined'&&GS.zone===-6){
+      const ncx=Math.round(player.wx/G_CELL), ncz=Math.round(player.wz/G_CELL);
+      if(this._ncx===undefined){ this._ncx=ncx; this._ncz=ncz; }
+      const dCol=ncx-this._ncx, dRow=ncz-this._ncz;
+      if(dCol!==0||dRow!==0){ this._scrollGrid(dCol,dRow); this._ncx=ncx; this._ncz=ncz; }
+      this._gx=ncx*G_CELL; this._gz=ncz*G_CELL;
+    } else { this._gx=0; this._gz=0; this._ncx=undefined; }
+    const _ox=this._gx, _oz=this._gz;
+    if(this.lines){ this.lines.position.x=_ox; this.lines.position.z=_oz; }
+    if(this.glowLines){ this.glowLines.position.x=_ox; this.glowLines.position.z=_oz; }
+    if(this.dots){ this.dots.position.x=_ox; this.dots.position.z=_oz; }
     // Shockwaves — respects energy cap, balanced XZ vs Y
     const MAX_NODES_PER_SHOCK=280;
     const _cap=this._energyCap();
@@ -1350,7 +1384,7 @@ class Grid3D{
       const band=28; // narrower = tighter ring
       let checked=0;
       for(let i=0;i<this.n&&checked<MAX_NODES_PER_SHOCK;i++){
-        const dx=this.x[i]-sk.wx, dz=this.z[i]-sk.wz;
+        const dx=this.x[i]-(sk.wx-_ox), dz=this.z[i]-(sk.wz-_oz);
         const d=Math.sqrt(dx*dx+dz*dz)||0.01;
         if(Math.abs(d-sk.r)<band){
           const f=((band-Math.abs(d-sk.r))/band)*sk.str*sk.life*_cap;
@@ -1399,7 +1433,7 @@ class Grid3D{
           Math.sin((x-z)*0.010+t*1.3)*0.2;
         let bright=clamp((wave+1)*0.5*0.7+this.beat*0.4, 0.18, 1.0);
         // Player proximity glow — gradient ring lights up grid under/around player
-        const dpx=x-px, dpz=z-pz;
+        const dpx=x-(px-_ox), dpz=z-(pz-_oz);
         const dp=Math.hypot(dpx,dpz);
         if(dp<glowR){
           // Bright ring just outside player, fades both inward and outward
@@ -1419,7 +1453,7 @@ class Grid3D{
       const t=Math.min(spd/220,1);
       const radius=100;
       for(let i=0;i<this.n;i++){
-        const dx=this.rx[i]-player.wx, dz=this.rz[i]-player.wz;
+        const dx=this.rx[i]-(player.wx-_ox), dz=this.rz[i]-(player.wz-_oz);
         const d2=dx*dx+dz*dz;
         if(d2<radius*radius&&d2>0.01){
           const d=Math.sqrt(d2);
@@ -1583,8 +1617,8 @@ class Grid3D{
   // Bilinear-interpolate Y displacement at any world XZ position
   sampleY(wx, wz){
     // Map world coords to fractional grid column/row
-    const fc = (wx + HALF_W) / G_CELL;
-    const fr = (wz + HALF_D) / G_CELL;
+    const fc = (wx - this._gx + HALF_W) / G_CELL;
+    const fr = (wz - this._gz + HALF_D) / G_CELL;
     const c0 = clamp(Math.floor(fc), 0, this.nx-2);
     const r0 = clamp(Math.floor(fr), 0, this.nz-2);
     const c1 = c0+1, r1 = r0+1;
@@ -5048,6 +5082,9 @@ class DropBomb{
     }
 
     // Detonate when timer hits 0
+    if((GS.zone===-6||GS.zone===-7) && _arenaObstacles.length){
+      for(const o of _arenaObstacles){ if(o.t>=0.5 && this.y<o.h+6 && Math.abs(this.wx-o.x)<o.w*0.5+6 && Math.abs(this.wz-o.z)<o.d*0.5+6){ this.detonate(); return false; } }
+    }
     if(this.timer<=0){ this.detonate(); return false; }
     return true;
   }
@@ -5128,7 +5165,7 @@ class Bullet{
     else if(this.y>9){ this.vy-=420*dt; this.y+=this.vy*dt; if(this.y<9){this.y=9;this.vy=0;} }
     this.mesh.position.set(this.wx,this.y,this.wz);
     if(this._g3){ if(Math.abs(this.wx)>1600||Math.abs(this.wz)>1600||this.y<-300||this.y>1400)this.life=0; }
-    else if(this.wx<-HALF_W-30||this.wx>HALF_W+30||this.wz<-HALF_D-30||this.wz>HALF_D+30)this.life=0; }
+    else if(GS.zone!==-6&&GS.zone!==-7&&(this.wx<-HALF_W-30||this.wx>HALF_W+30||this.wz<-HALF_D-30||this.wz>HALF_D+30))this.life=0; }
   remove(){ scene.remove(this.mesh); }
 }
 
@@ -5233,7 +5270,8 @@ class Missile{
     this.glow.material.opacity=0.2+0.3*Math.sin(this.t*14);
 
     // Out of bounds
-    if(Math.hypot(this.wx,this.wz)>ARENA_R+40||this.life<=0){ this._explode(); return 0; }
+    if(((GS.zone!==-6&&GS.zone!==-7)&&Math.hypot(this.wx,this.wz)>ARENA_R+40)||this.life<=0){ this._explode(); return 0; }
+    if(_arenaObstacles.length){ for(const o of _arenaObstacles){ if(o.t>=0.5 && (this.y||0)<o.h && Math.abs(this.wx-o.x)<o.w*0.5+8 && Math.abs(this.wz-o.z)<o.d*0.5+8){ this._explode(); return 0; } } }
 
     // Hit enemy
     if(this.target){
@@ -5377,6 +5415,36 @@ class Player{
       ps.burst(this.wx,this.wz,[0,0.7,1],6,50);
       if(this.boostFuel===0) announce('NO BOOST','#ff4400');
     }
+  }
+  _skateHoriz(rawX,rawZ,dt){
+    let vx=this.vx, vz=this.vz;
+    const air=this.py>5;
+    const inMag=Math.hypot(rawX,rawZ);
+    if(air){
+      vx+=rawX*200*dt; vz+=rawZ*200*dt;                 // light air steering
+    } else {
+      const MAX=540, PUSH=640;
+      if(inMag>0.15){ vx+=rawX*PUSH*dt; vz+=rawZ*PUSH*dt; }   // push
+      else { const fr=Math.pow(0.4,dt); vx*=fr; vz*=fr; }     // rolling glide (low friction)
+      const sp=Math.hypot(vx,vz); if(sp>MAX){ vx=vx/sp*MAX; vz=vz/sp*MAX; }
+    }
+    this.vx=vx; this.vz=vz;
+    this.inX=lerp(this.inX,rawX,0.25); this.inZ=lerp(this.inZ,rawZ,0.25);
+    let nx=this.wx+vx*dt, nz=this.wz+vz*dt;
+    const R=495, dd=Math.hypot(nx,nz);
+    if(dd>R){ nx=nx/dd*R; nz=nz/dd*R; this.vx*=0.5; this.vz*=0.5; }
+    this.wx=nx; this.wz=nz;
+    // Ramp launch — roll off the lip with speed and fly
+    if(typeof _skatePark!=='undefined'&&_skatePark){
+      const info=_skateRampInfo(this.wx,this.wz);
+      if(info.on){ this._skOnRamp=true; this._skSlope=info.slope; this._skAng=info.ang; }
+      else if(this._skOnRamp){
+        this._skOnRamp=false;
+        const along=vx*Math.cos(this._skAng)+vz*Math.sin(this._skAng);
+        if(along>50&&this.py>8){ this.jump(along*this._skSlope*1.3); ps.ring(this.wx,this.wz,[0.2,1,0.85],12,90); Audio.blip(420,0.12,'sine',0.18,700); }
+      }
+    }
+    if(grid) grid.push(this.wx,this.wz,-0.25,46);          // skating ripples the grid
   }
   // ── GUN STICK TAP STATE MACHINE ──
   // Tap 1 (grounded): jump
@@ -5841,10 +5909,10 @@ class Player{
         let nx=this.wx+this.vx*dt, nz=this.wz+this.vz*dt;
         const _zc2=zoneCenter(GS.zone);
         const edge2=ARENA_R-12, dist2=Math.hypot(nx-_zc2.x,nz-_zc2.z);
-        if(dist2>edge2){ const nrmX=(nx-_zc2.x)/dist2,nrmZ=(nz-_zc2.z)/dist2; nx=_zc2.x+nrmX*edge2; nz=_zc2.z+nrmZ*edge2; grid.shock(nx,nz,1); }
+        if(dist2>edge2 && GS.zone!==-6 && GS.zone!==-7){ const nrmX=(nx-_zc2.x)/dist2,nrmZ=(nz-_zc2.z)/dist2; nx=_zc2.x+nrmX*edge2; nz=_zc2.z+nrmZ*edge2; grid.shock(nx,nz,1); }
         this.wx=nx; this.wz=nz;
         if(this._dashDir&&Math.random()<0.7) ps.spark(this.wx-this._dashDir[0]*rand(4,18),this.wz-this._dashDir[1]*rand(4,18),[0,0.9,1]);
-      } else {
+      } else if(GS.zone===-8){ this._skateHoriz(rawX,rawZ,dt); } else {
 
       const top=MOVE.topSpeed*speedMult*(od?1.25:1);
       const tvx=this.inX*top, tvz=this.inZ*top;
@@ -5855,7 +5923,7 @@ class Player{
       let nx=this.wx+this.vx*dt, nz=this.wz+this.vz*dt;
       const _zc=zoneCenter(GS.zone);
       const edge=ARENA_R-12, dist=Math.hypot(nx-_zc.x,nz-_zc.z);
-      if(dist>edge){
+      if(dist>edge && GS.zone!==-6 && GS.zone!==-7){
         const nrmX=(nx-_zc.x)/dist, nrmZ=(nz-_zc.z)/dist;
         nx=_zc.x+nrmX*edge; nz=_zc.z+nrmZ*edge;
         const vdot=this.vx*nrmX+this.vz*nrmZ;
@@ -6110,6 +6178,7 @@ class Player{
     // World floor
     if(this.py<3) onSurface=true;
 
+    if(GS.zone===-8){ const _rh=_skateRampHeight(this.wx,this.wz); if(_rh>groundY){ groundY=_rh; if(this.py<=_rh+10) onSurface=true; } }
     const height=this.py-groundY;
     const airborne=!onSurface&&height>3;
     const pulse=0.5+0.5*Math.sin(performance.now()*0.007);
@@ -6364,6 +6433,7 @@ function getZoneDef(z){
   if(z===-5) return {name:'TRANSITION',subtitle:'Construct Test',color:0x33ffcc,glowCol:[0.2,1,0.8],waves:0,enemies:[],special:'none',desc:'Walk through the gate'};
   if(z===-6) return {name:'GRID CITY',subtitle:'Streaming Test',color:0xffcc00,glowCol:[1,0.8,0],waves:0,enemies:[],special:'none',desc:'Roam the 3x3 streaming world'};
   if(z===-7) return {name:'HOME BASE',subtitle:'Hangar',color:0xff66cc,glowCol:[1,0.4,0.8],waves:0,enemies:[],special:'none',desc:'Your hangar and lab'};
+  if(z===-8) return {name:'SKATE PARK',subtitle:'Momentum Sandbox',color:0x00ffc8,glowCol:[0,1,0.78],waves:0,enemies:[],special:'none',desc:'Push, roll, launch off ramps'};
   return ZONES[Math.min(z,ZONES.length-1)];
 }
 
@@ -6468,7 +6538,7 @@ class Powerup{
 // ════════════════════════════════════════════════════════════
 const ZONE_STRIDE=0; // all zones at world origin — grid stays centered // distance between zone centers
 
-function zoneCenter(z){ return {x:((z===-5||z===-6||z===-7)?0:z*ZONE_STRIDE), z:0}; }
+function zoneCenter(z){ return {x:((z===-5||z===-6||z===-7||z===-8)?0:z*ZONE_STRIDE), z:0}; }
 function toZoneLocal(wx,wz,z){ const c=zoneCenter(z); return {x:wx-c.x,z:wz-c.z}; }
 function fromZoneLocal(lx,lz,z){ const c=zoneCenter(z); return {x:lx+c.x,z:lz+c.z}; }
 
@@ -7405,10 +7475,11 @@ function startGame(levelIdx){
   GS_plants.forEach(p=>p.remove()); GS_plants=[];
   GS_bots.forEach(b=>{ if(b.alive) b.die(); }); GS_bots=[];
   if(GS_trainingDummy){ GS_trainingDummy.remove(); GS_trainingDummy=null; }
-  GS_moveableWalls.forEach(w=>w.remove()); GS_moveableWalls=[]; GS_movingWall=null; _disposePuzzleRoom1(); _disposeGridCity(); _disposeHomeBase();
+  GS_moveableWalls.forEach(w=>w.remove()); GS_moveableWalls=[]; GS_movingWall=null; _disposePuzzleRoom1(); _disposeGridCity(); _disposeHomeBase(); _disposeSkateArena();
   if(GS_victoryFX){GS_victoryFX.remove();GS_victoryFX=null;}
   GS_puzzleBlocks.forEach(b=>b.remove()); GS_puzzleBlocks=[];
   player.reset(true);
+  _gPos=null; _gVel=null; _g3D=false; _gPlanet=null; _gOnSurface=false; _gOnPlatform=null; if(player){ player._inPlanetGravity=false; player._onPlatform=false; }
   // Puzzle lab spawn — far corner away from tower (which is at 0,0)
   if(GS.zone===-3){ player.wx=200; player.wz=200; }
   else if(GS.zone===-4){
@@ -7441,6 +7512,7 @@ function startGame(levelIdx){
       GS.state='menu';
       exitAimMode();
       if(GS_movingWall){ GS_movingWall.release(); GS_movingWall=null; }
+      if(window._overlayMenuHTML && !document.getElementById('screen-levelselect')) document.getElementById('overlay').innerHTML=window._overlayMenuHTML;
       document.getElementById('overlay').style.display='flex';
       window._showScreen('levelselect');
       document.getElementById('overlay').scrollTop=0;
@@ -7454,11 +7526,12 @@ function startGame(levelIdx){
   GS._puzzlePassed=false; GS._puzzleGate=null;
   if(GS.zone===-1){ buildTutorial(); }
   else if(GS.zone===-2){ buildTrainingRoom(); }
-  else if(GS.zone===-3){ buildPuzzleRoom1(); }
+  else if(GS.zone===-3){ buildPuzzleLab(); }
   else if(GS.zone===-4){ buildGalaxy(); }
   else if(GS.zone===-5){ buildTransition(); }
   else if(GS.zone===-6){ buildGridCity(); }
   else if(GS.zone===-7){ buildHomeBase(); }
+  else if(GS.zone===-8){ buildSkateArena(); }
   else if(GS.zone===0) buildZone1Puzzle();
   else spawnWave();
   setupSpecialLevel(GS.zone);
@@ -7752,7 +7825,7 @@ function _physTextBlast(wx,wz,r){
   if(!_physText) return; const ud=_physText.userData; if(ud.phase!=='live') return;
   const signZ=ud.signZ; if(Math.abs(wz-signZ)>r+12) return; let any=false;
   for(const c of _physText.children){ const u=c.userData; if(u.state!=='live') continue;
-    const dx=wx-u.rx, dz=wz-signZ; if(dx*dx+dz*dz<r*r){ u.state='fall'; u.vx=(u.rx-wx)*1.8+(Math.random()-0.5)*16; u.vy=44+Math.random()*44; u.vz=(signZ-wz)*1.4+(Math.random()-0.5)*16; any=true; } }
+    const dx=wx-u.rx, dz=wz-signZ; if(dx*dx+dz*dz<r*r){ u.state='fall'; u.vx=(u.rx-wx)*2.6+(Math.random()-0.5)*22; u.vy=64+Math.random()*60; u.vz=(signZ-wz)*2.0+(Math.random()-0.5)*22; u.spin=(Math.random()-0.5)*18; any=true; } }
   if(any) ps.burst(wx,signZ,[0.4,1,0.85],14,120);
 }
 function updatePhysicalText(dt){
@@ -7783,8 +7856,8 @@ function updatePhysicalText(dt){
       let best=null,bd=cell*1.7;
       for(const c of _physText.children){ const u=c.userData; if(u.state!=='live') continue;
         const dx=Math.abs(b.wx-u.rx); if(dx<bd){bd=dx;best=c;} }
-      if(best){ const u=best.userData; u.state='fall'; u.vx=(Math.random()-0.5)*22; u.vy=32+Math.random()*32; u.vz=8+Math.random()*8;
-        ps.burst(u.rx,signZ,[0.4,1,0.85],8,80); Audio.blip(740,0.10,'sine',0.10,260); b.life=0; }
+      if(best){ const u=best.userData; u.state='fall'; u.vx=(b.vx||0)*0.12+(Math.random()-0.5)*30; u.vz=(b.vz||0)*0.12+16+Math.random()*16; u.vy=55+Math.random()*45; u.spin=(Math.random()-0.5)*16;
+        ps.burst(u.rx,signZ,[0.4,1,0.85],10,110); Audio.blip(740,0.10,'sine',0.10,260); b.life=0; }
     }
     if(ud.liveT>7){ for(const c of _physText.children){ const u=c.userData; if(u.state!=='fall'){ u.state='fall'; u.vy=20; u.vx=(Math.random()-0.5)*10; } } ud.phase='fade'; }
     _physIntegrate(dt);
@@ -8580,6 +8653,7 @@ function showGameOver(){ Audio.stopMusic();
   submitBtn.addEventListener('click',doSubmit);
   input.addEventListener('keydown',e=>{ if(e.key==='Enter')doSubmit(); });
   document.getElementById('start-btn').addEventListener('click',()=>{
+    if(window._overlayMenuHTML) ov.innerHTML=window._overlayMenuHTML;
     ov.style.display='none';
     startGame(GS.zone); // restart at same level
   });
@@ -10359,6 +10433,7 @@ function loop(ts){ requestAnimationFrame(loop);
       }
       if(GS.zone===-6){ updateGridCity(dt); }
       if(GS.zone===-7){ updateHomeBase(dt); }
+      if(GS.zone===-8){ updateSkateArena(dt); }
 
       for(let i=GS_bots.length-1;i>=0;i--){
         const bot=GS_bots[i];
@@ -11452,10 +11527,12 @@ function buildGridCity(){
   _disposeGridCity();
   if(grid){ grid.dots.material.opacity=0; grid.perimeter.material.opacity=0; if(grid.disc)grid.disc.material.opacity=0; if(grid.glow)grid.glow.material.opacity=0; if(grid.glowLines)grid.glowLines.material.opacity=0; }
   _gridCity={cells:[],curKey:''};
+  let _gd=document.getElementById("gc-dbg"); if(!_gd){ _gd=document.createElement("div"); _gd.id="gc-dbg"; _gd.style.cssText="position:fixed;left:8px;top:118px;z-index:60;font:11px monospace;color:#ffcc00;background:rgba(0,0,0,0.55);padding:3px 6px;border-radius:4px;pointer-events:none"; document.body.appendChild(_gd); } _gd.style.display="block";
   setTimeout(()=>announce("GRID CITY - ENDLESS STREAMING WORLD - ROAM FREELY","#ffcc00"),700);
   setTimeout(()=>announce("EACH SECTOR = A BIOME WITH ITS OWN BUILDINGS AND ENEMIES","#ffcc0099"),3200);
 }
 function _disposeGridCity(){
+  const _gd=document.getElementById("gc-dbg"); if(_gd) _gd.style.display="none";
   if(!_gridCity) return; _gridCity.cells.forEach(_gcDisposeCell); _gridCity=null;
   if(grid){ grid.dots.material.opacity=0.9; grid.perimeter.material.opacity=0.9; if(grid.disc)grid.disc.material.opacity=0.35; if(grid.glow)grid.glow.material.opacity=0.18; if(grid.glowLines)grid.glowLines.material.opacity=0.7; }
 }
@@ -11464,6 +11541,7 @@ function updateGridCity(dt){
   const GC=_gridCity, C=_GC_CELL;
   const pcx=Math.round(player.wx/C), pcz=Math.round(player.wz/C);
   const key=pcx+','+pcz;
+  const _gd=document.getElementById('gc-dbg'); if(_gd) _gd.textContent='\u221e  x '+player.wx.toFixed(0)+'  z '+player.wz.toFixed(0)+'   cell ['+pcx+','+pcz+']   loaded '+GC.cells.length;
   if(key!==GC.curKey){ GC.curKey=key; announce("ENTERING "+_gcName(pcx,pcz),"#"+_gcCellColor(pcx,pcz).getHexString()); }
   // infinite streaming — generate cells around the player in every direction, forget distant ones
   for(let dz=-2;dz<=2;dz++)for(let dx=-2;dx<=2;dx++){
@@ -11682,6 +11760,56 @@ function updateHomeBase(dt){
       const tgt=pr.target; setTimeout(()=>{ if(GS.zone===-7) startGame(tgt); },700);
     }
   }
+}
+let _skatePark=null;
+function _skateRampInfo(wx,wz){
+  if(!_skatePark) return {on:false,h:0,slope:0,ang:0};
+  let best={on:false,h:0,slope:0,ang:0};
+  for(const r of _skatePark.ramps){
+    const rx=wx-r.x, rz=wz-r.z;
+    const along=rx*Math.cos(r.ang)+rz*Math.sin(r.ang);
+    const across=-rx*Math.sin(r.ang)+rz*Math.cos(r.ang);
+    if(along>=0&&along<=r.len&&Math.abs(across)<=r.w/2){
+      const h=(along/r.len)*r.h;
+      if(h>=best.h) best={on:true,h,slope:r.h/r.len,ang:r.ang};
+    }
+  }
+  return best;
+}
+function _skateRampHeight(wx,wz){ return _skateRampInfo(wx,wz).h; }
+function buildSkateArena(){
+  _disposeSkateArena();
+  if(grid){ if(grid.lines)grid.lines.material.opacity=1.0; if(grid.glowLines)grid.glowLines.material.opacity=0.7; if(grid.dots)grid.dots.material.opacity=0.9; if(grid.disc)grid.disc.material.opacity=0.35; if(grid.glow)grid.glow.material.opacity=0.18; if(grid.perimeter)grid.perimeter.material.opacity=0.9; }
+  const group=new THREE.Group(); scene.add(group);
+  const ramps=[];
+  const addRamp=(x,z,angDeg,len,h,w,col)=>{
+    const ang=angDeg*Math.PI/180;
+    ramps.push({x,z,ang,len,h,w});
+    const dX=Math.cos(ang),dZ=Math.sin(ang),pX=-Math.sin(ang),pZ=Math.cos(ang);
+    const bl=[x+pX*(-w/2),0.3,z+pZ*(-w/2)], br=[x+pX*(w/2),0.3,z+pZ*(w/2)];
+    const tl=[x+dX*len+pX*(-w/2),h,z+dZ*len+pZ*(-w/2)], tr=[x+dX*len+pX*(w/2),h,z+dZ*len+pZ*(w/2)];
+    const surf=new THREE.BufferGeometry();
+    surf.setAttribute('position',new THREE.BufferAttribute(new Float32Array([].concat(bl,br,tr,bl,tr,tl)),3));
+    surf.computeVertexNormals();
+    group.add(new THREE.Mesh(surf,new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.28,side:THREE.DoubleSide,depthWrite:true})));
+    const og=new THREE.BufferGeometry();
+    og.setAttribute('position',new THREE.BufferAttribute(new Float32Array([].concat(bl,br,br,tr,tr,tl,tl,bl,bl,tr,br,tl)),3));
+    group.add(new THREE.LineSegments(og,new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false})));
+  };
+  addRamp(0,150,90,120,72,140,0x00ffc8);
+  addRamp(0,-150,-90,120,72,140,0xff66cc);
+  addRamp(230,0,0,110,56,130,0xffcc00);
+  addRamp(-230,0,180,110,56,130,0xff8800);
+  _skatePark={group,ramps};
+  setTimeout(()=>announce("SKATE PARK - PUSH TO ROLL, LAUNCH OFF THE RAMPS","#00ffc8"),600);
+  setTimeout(()=>announce("TAP THE RIGHT STICK TO OLLIE","#00ffc8aa"),3300);
+}
+function updateSkateArena(dt){ /* reserved: moving ramps, trick scoring */ }
+function _disposeSkateArena(){
+  if(!_skatePark) return;
+  scene.remove(_skatePark.group);
+  _skatePark.group.traverse(o=>{ if(o.geometry&&o.geometry.dispose)o.geometry.dispose(); if(o.material&&o.material.dispose)o.material.dispose(); });
+  _skatePark=null;
 }
 function updateGrindRail(dt){
   if(!player||!window._grindRail) return;
@@ -12009,6 +12137,7 @@ function setupSpecialLevel(zoneIdx){
   }
 }
 
+window._overlayMenuHTML=(document.getElementById('overlay')||{}).innerHTML||'';
 document.getElementById('start-btn')&&document.getElementById('start-btn').addEventListener('click',()=>{document.getElementById('overlay').style.display='none';startGame(0);});
 // Training button
 (()=>{
@@ -12510,7 +12639,8 @@ const MusicPlayer={
 window.MusicPlayer=MusicPlayer;
 
 let _sfxMuted=false;
-window.toggleMuteMusic=function(){ MusicPlayer.setMuted(!MusicPlayer.muted); }
+let _musicMuted=false;
+window.toggleMuteMusic=function(){ _musicMuted=!_musicMuted; MusicPlayer.setMuted(_musicMuted); if(Audio.musicGain) Audio.musicGain.gain.value=_musicMuted?0:0.28; }
 window.toggleMuteSfx=function(){
   _sfxMuted=!_sfxMuted;
   if(Audio.sfxGain) Audio.sfxGain.gain.value=_sfxMuted?0:0.55;
