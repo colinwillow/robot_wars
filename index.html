@@ -247,7 +247,7 @@ canvas{display:block}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:6px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-AG</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:6px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-BC</div>
 </div>
 <div id="fp-crosshair"><div class="ch-t"></div><div class="ch-b"></div><div class="ch-l"></div><div class="ch-r"></div><div class="ch-dot"></div></div>
 
@@ -474,6 +474,8 @@ canvas{display:block}
         <div style="display:flex"><svg width="24" height="24" viewBox="0 0 24 24" stroke="#ff5fae" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#ff5fae;animation-delay:-0.3s"><path d="M4 5v9a8 8 0 0 0 16 0V5" style="transform-box:view-box;transform-origin:12px 12px;animation:pipeFlex 3.4s ease-in-out infinite"/><path d="M4 5a8 4 0 0 1 16 0" style="transform-box:view-box;transform-origin:12px 12px;animation:pipeFlex 3.4s ease-in-out infinite"/></svg></div><div style="font-size:9px;letter-spacing:2px;color:#ff5fae">PIPELINE</div></button>
       <button onclick="window._launchLevel(-11)" class="zone-btn" style="--c:#88ff66;flex:1;min-width:90px">
         <div style="display:flex"><svg width="24" height="24" viewBox="0 0 24 24" stroke="#88ff66" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#88ff66;animation-delay:-1.9s"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="5.5" r="1.6"/><circle cx="18.5" cy="12" r="1.6"/><circle cx="12" cy="18.5" r="1.6"/><circle cx="5.5" cy="12" r="1.6"/></svg></div><div style="font-size:9px;letter-spacing:2px;color:#88ff66">ASSET ROOM</div></button>
+      <button onclick="window._launchLevel(-12)" class="zone-btn" style="--c:#44ccff;flex:1;min-width:90px">
+        <div style="display:flex"><svg width="24" height="24" viewBox="0 0 24 24" stroke="#44ccff" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#44ccff;animation-delay:-2.3s"><circle cx="12" cy="12" r="6" style="transform-box:view-box;transform-origin:12px 12px;animation:planetBob 3s ease-in-out infinite"/><ellipse cx="12" cy="12" rx="10.5" ry="4" style="transform-box:view-box;transform-origin:12px 12px;animation:ringSpin 9s linear infinite"/><ellipse cx="12" cy="12" rx="10.5" ry="4" transform="rotate(60 12 12)" style="transform-box:view-box;transform-origin:12px 12px;animation:ringSpin 14s linear infinite reverse"/></svg></div><div style="font-size:9px;letter-spacing:2px;color:#44ccff">PLASMA CORE</div></button>
     </div>
     <div style="font-family:'Orbitron',sans-serif;font-size:8px;letter-spacing:4px;color:#ffffff33;margin:8px 0 12px;text-align:center">── CAMPAIGN ZONES ──</div>
     <div id="ls-grid" style="width:100%;max-width:360px;padding:0 16px"></div>
@@ -695,6 +697,17 @@ canvas{display:block}
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+// ── DIAGNOSTIC: tally geometry creations by type to locate the leak ──
+// (THREE namespace is read-only, so patch the prototype instead: every geometry
+//  sets its 'position' attribute exactly once at creation.)
+window._geoMake={};
+(function(){
+  const proto=THREE.BufferGeometry.prototype, orig=proto.setAttribute;
+  proto.setAttribute=function(name,attr){
+    if(name==='position'){ const t=this.type||'BufferGeometry'; window._geoMake[t]=(window._geoMake[t]||0)+1; }
+    return orig.call(this,name,attr);
+  };
+})();
 
 // ── INLINE POST-PROCESSING — no external deps, works everywhere ──
 // Minimal bloom: render to texture → threshold + blur → additive composite
@@ -1357,6 +1370,16 @@ class Grid3D{
   suck(wx,wz,strength,radius){ this.push(wx,wz,-strength*0.5,radius); }
   shock(wx,wz,strength){ this.shocks.push({wx,wz,r:0,str:strength,life:1}); }
   pulse(a){ this.beat=Math.min(1,this.beat+a); }
+  dimple(wx,wz,amt){            // O(1) — pokes only the 4 nodes around the point (bullet wake)
+    const fc=(wx-this._gx+HALF_W)/G_CELL, fr=(wz-this._gz+HALF_D)/G_CELL;
+    const c0=Math.floor(fc), r0=Math.floor(fr);
+    if(c0<0||c0>=this.nx-1||r0<0||r0>=this.nz-1) return;
+    const tx=fc-c0, tz=fr-r0, nx=this.nx, i=r0*nx+c0;
+    this.vy[i]      -= amt*(1-tx)*(1-tz);
+    this.vy[i+1]    -= amt*tx*(1-tz);
+    this.vy[i+nx]   -= amt*(1-tx)*tz;
+    this.vy[i+nx+1] -= amt*tx*tz;
+  }
 
   // Returns 0-1 scale factor based on current grid kinetic energy
   // When grid is already very active, new impulses are dampened
@@ -1663,14 +1686,14 @@ class Particles{
     for(let i=0;i<cap;i++)this.pos[i*3+1]=-9999;
   }
   // Spawn fewer particles on mobile
-  burst(wx,wz,col,n=28,spd=90){ const[r,g,b]=col; const nn=IS_MOBILE?Math.ceil(n*0.5):n; for(let i=0;i<nn;i++){const a=rand(TAU),up=rand(0.2,1.1),s=spd*(0.3+Math.random());this._spawn(wx,4,wz,Math.cos(a)*s,up*s*0.6,Math.sin(a)*s,r,g,b,0.014+rand(0.02));} }
+  burst(wx,wz,col,n=28,spd=90,y){ const[r,g,b]=col,Y=(y!==undefined?y:4); const nn=IS_MOBILE?Math.ceil(n*0.5):n; for(let i=0;i<nn;i++){const a=rand(TAU),up=rand(0.2,1.1),s=spd*(0.3+Math.random());this._spawn(wx,Y,wz,Math.cos(a)*s,up*s*0.6,Math.sin(a)*s,r,g,b,0.014+rand(0.02));} }
   ring(wx,wz,col,n=40,spd=120){ const[r,g,b]=col; const nn=IS_MOBILE?Math.ceil(n*0.5):n; for(let i=0;i<nn;i++){const a=(i/nn)*TAU,s=spd*(0.6+Math.random()*0.5);this._spawn(wx,4,wz,Math.cos(a)*s,rand(10,60),Math.sin(a)*s,r,g,b,0.012+rand(0.014));} }
   _spawn(x,y,z,vx,vy,vz,r,g,b,dec){ let i=this.n<this.cap?this.n++:Math.floor(rand(this.cap));
     this.pos[i*3]=x;this.pos[i*3+1]=y;this.pos[i*3+2]=z; this.vel[i*3]=vx;this.vel[i*3+1]=vy;this.vel[i*3+2]=vz;
     this.base[i*3]=r;this.base[i*3+1]=g;this.base[i*3+2]=b; this.col[i*3]=r;this.col[i*3+1]=g;this.col[i*3+2]=b; this.life[i]=1;this.decay[i]=dec; }
-  burst(wx,wz,col,n=28,spd=90){ const[r,g,b]=col; for(let i=0;i<n;i++){const a=rand(TAU),up=rand(0.2,1.1),s=spd*(0.3+Math.random());this._spawn(wx,4,wz,Math.cos(a)*s,up*s*0.6,Math.sin(a)*s,r,g,b,0.014+rand(0.02));} }
+  burst(wx,wz,col,n=28,spd=90,y){ const[r,g,b]=col,Y=(y!==undefined?y:4); for(let i=0;i<n;i++){const a=rand(TAU),up=rand(0.2,1.1),s=spd*(0.3+Math.random());this._spawn(wx,Y,wz,Math.cos(a)*s,up*s*0.6,Math.sin(a)*s,r,g,b,0.014+rand(0.02));} }
   ring(wx,wz,col,n=40,spd=120){ const[r,g,b]=col; for(let i=0;i<n;i++){const a=(i/n)*TAU,s=spd*(0.6+Math.random()*0.5);this._spawn(wx,4,wz,Math.cos(a)*s,rand(10,60),Math.sin(a)*s,r,g,b,0.012+rand(0.014));} }
-  spark(wx,wz,col){ const[r,g,b]=col; for(let i=0;i<4;i++){const a=rand(TAU);this._spawn(wx,5,wz,Math.cos(a)*rand(40,120),rand(20,80),Math.sin(a)*rand(40,120),r,g,b,0.05+rand(0.04));} }
+  spark(wx,wz,col,y){ const[r,g,b]=col,Y=(y!==undefined?y:5); for(let i=0;i<4;i++){const a=rand(TAU);this._spawn(wx,Y,wz,Math.cos(a)*rand(40,120),rand(20,80),Math.sin(a)*rand(40,120),r,g,b,0.05+rand(0.04));} }
   update(dt){ const t=dt*60;
     for(let i=0;i<this.n;i++){ if(this.life[i]<=0)continue;
       this.pos[i*3]+=this.vel[i*3]*dt; this.pos[i*3+1]+=this.vel[i*3+1]*dt; this.pos[i*3+2]+=this.vel[i*3+2]*dt;
@@ -1722,6 +1745,131 @@ function loadDroneGLB(){
   });
   return _droneLoadPromise;
 }
+const HOVERBOARD_GLB='hoverboard.glb';
+let _hoverGltf=null, _hoverLoadPromise=null;
+function loadHoverboardGLB(){
+  if(_hoverLoadPromise) return _hoverLoadPromise;
+  _hoverLoadPromise=new Promise((resolve)=>{
+    const loader=new GLTFLoader();
+    loader.load(HOVERBOARD_GLB, gltf=>{ _hoverGltf=gltf; console.log('Hoverboard loaded.'); resolve(gltf); },
+      undefined, ()=>resolve(null));   // silent fail like robot/drone — GLB only loads on the live site, not the sandbox
+  });
+  return _hoverLoadPromise;
+}
+// Clone the hoverboard, normalise scale (target = longest dimension in world units),
+// self-light it (the scene has no lights, so raw GLB renders black) and add a travelling glow.
+function _makeHoverboardModel(target=58, glowHex=0x00ffc8){
+  if(!_hoverGltf) return null;
+  let m; try{ m=SkeletonUtils.clone(_hoverGltf.scene); }catch(e){ m=_hoverGltf.scene.clone(true); }
+  const box=new THREE.Box3().setFromObject(m); const sz=new THREE.Vector3(); box.getSize(sz);
+  const maxd=Math.max(sz.x,sz.y,sz.z)||1; const sc=target/maxd; m.scale.setScalar(sc);
+  const ctr=new THREE.Vector3(); box.getCenter(ctr); m.position.set(-ctr.x*sc,-ctr.y*sc,-ctr.z*sc);
+  const glow=new THREE.Color(glowHex);
+  m.traverse(c=>{ if(c.isMesh||c.isSkinnedMesh){ c.frustumCulled=false; c.castShadow=false; c.receiveShadow=false;
+    const mats=Array.isArray(c.material)?c.material:[c.material];
+    mats.forEach(mt=>{ if(!mt) return;
+      if('emissive' in mt){
+        if(mt.map){ mt.emissiveMap=mt.map; mt.emissive=new THREE.Color(0xffffff); mt.emissiveIntensity=1.15; }
+        else { let e=mt.color?mt.color.clone():glow.clone(); if(e.r+e.g+e.b<0.06) e=glow.clone(); mt.emissive=e; mt.emissiveIntensity=1.7; }
+        if('toneMapped' in mt) mt.toneMapped=false;
+      }
+      mt.needsUpdate=true;
+    });
+  } });
+  const wrap=new THREE.Group(); wrap.add(m);
+  const light=new THREE.PointLight(glowHex,2.0,target*2.6,2); light.position.set(0,target*0.25,0); wrap.add(light);
+  wrap.userData.isHoverboard=true;
+  return wrap;
+}
+// Put the hoverboard (lit) into a board container, or the procedural fallback; swap in the GLB when it loads.
+function _fillBoard(container, target, glowHex, buildProc){
+  const hb=_makeHoverboardModel(target,glowHex);
+  if(hb){ container.add(hb); return; }
+  buildProc(container);
+  loadHoverboardGLB().then(g=>{
+    if(!g||!container.parent) return;
+    for(let i=container.children.length-1;i>=0;i--){ const c=container.children[i]; container.remove(c);
+      c.traverse&&c.traverse(o=>{ if(o.geometry&&o.geometry.dispose)o.geometry.dispose(); if(o.material&&o.material.dispose)o.material.dispose(); }); }
+    const hb2=_makeHoverboardModel(target,glowHex); if(hb2) container.add(hb2);
+  });
+}
+loadHoverboardGLB(); // preload at startup so the board is ready when a skate zone opens
+
+// ── LARGE SCI-FI DOOR GLB (showcase prop) ──
+const LARGE_DOOR_GLB='large_door.glb';
+let _doorGltf=null, _doorLoadPromise=null;
+function loadDoorGLB(){
+  if(_doorLoadPromise) return _doorLoadPromise;
+  _doorLoadPromise=new Promise((resolve)=>{
+    const loader=new GLTFLoader();
+    loader.load(LARGE_DOOR_GLB, gltf=>{ _doorGltf=gltf; console.log('Large door loaded.'); resolve(gltf); },
+      undefined, ()=>resolve(null));   // silent fail — GLB only loads on the live site
+  });
+  return _doorLoadPromise;
+}
+// Clone the door, scale so its tallest dimension = target, stand it on the ground (base at y=0), self-light it.
+function _makeDoorModel(target=120, glowHex=0x66ccff){
+  if(!_doorGltf) return null;
+  let m; try{ m=SkeletonUtils.clone(_doorGltf.scene); }catch(e){ m=_doorGltf.scene.clone(true); }
+  const box=new THREE.Box3().setFromObject(m); const sz=new THREE.Vector3(); box.getSize(sz);
+  const maxd=Math.max(sz.x,sz.y,sz.z)||1; const sc=target/maxd; m.scale.setScalar(sc);
+  const ctr=new THREE.Vector3(); box.getCenter(ctr);
+  m.position.set(-ctr.x*sc, -box.min.y*sc, -ctr.z*sc);   // base sits at local y=0
+  const glow=new THREE.Color(glowHex);
+  m.traverse(c=>{ if(c.isMesh||c.isSkinnedMesh){ c.frustumCulled=false;
+    const mats=Array.isArray(c.material)?c.material:[c.material];
+    mats.forEach(mt=>{ if(!mt) return;
+      if('emissive' in mt){
+        if(mt.map){ mt.emissiveMap=mt.map; mt.emissive=new THREE.Color(0xffffff); mt.emissiveIntensity=0.9; }
+        else { let e=mt.color?mt.color.clone():glow.clone(); if(e.r+e.g+e.b<0.06) e=glow.clone(); mt.emissive=e; mt.emissiveIntensity=1.2; }
+        if('toneMapped' in mt) mt.toneMapped=false;
+      }
+      mt.needsUpdate=true;
+    });
+  } });
+  const wrap=new THREE.Group(); wrap.add(m);
+  const light=new THREE.PointLight(glowHex,2.4,target*3,2); light.position.set(0,target*0.5,0); wrap.add(light);
+  return wrap;
+}
+loadDoorGLB(); // preload
+
+// ── INTERACTIVE DOOR — proximity open/close, driven by the GLB's "open"/"closed" clips ──
+function _makeInteractiveDoor(target=130, glowHex=0x66ccff){
+  const wrap=_makeDoorModel(target,glowHex);
+  if(!wrap) return null;
+  const root=wrap.children[0];
+  const door={wrap, root, mixer:null, openA:null, closeA:null, single:null, isOpen:null};
+  const clips=(_doorGltf&&_doorGltf.animations)||[];
+  if(clips.length){
+    const mx=new THREE.AnimationMixer(root); door.mixer=mx;
+    const find=(kw)=>clips.find(c=>c.name&&c.name.toLowerCase().includes(kw));
+    const oc=find('open'), cc=find('clos');
+    if(oc){ const a=mx.clipAction(oc); a.clampWhenFinished=true; a.loop=THREE.LoopOnce; door.openA=a; }
+    if(cc){ const a=mx.clipAction(cc); a.clampWhenFinished=true; a.loop=THREE.LoopOnce; door.closeA=a; }
+    if(!oc && clips[0]){ const a=mx.clipAction(clips[0]); a.clampWhenFinished=true; a.loop=THREE.LoopOnce; door.single=a; } // fallback: one clip, play fwd/rev
+  }
+  _doorSet(door,false,true);   // start closed
+  return door;
+}
+function _doorSet(door,open,instant){
+  if(!door) return;
+  if(door.isOpen===open && !instant) return;
+  door.isOpen=open;
+  if(door.openA && door.closeA){            // separate open / closed clips
+    const a=open?door.openA:door.closeA, b=open?door.closeA:door.openA;
+    b.stop(); a.reset(); a.play(); if(instant) a.time=a.getClip().duration, door.mixer.update(0);
+  } else {                                   // single clip: forward=open, reverse=close
+    const a=door.openA||door.single; if(!a) return;
+    a.paused=false; a.enabled=true; a.play(); a.timeScale=open?1:-1;
+    const d=a.getClip().duration;
+    if(instant){ a.time=open?d:0; }
+    else { if(open && a.time>=d) a.time=0; if(!open && a.time<=0) a.time=d; }
+    if(door.mixer) door.mixer.update(0);
+  }
+}
+
+
+
 function _applyDroneToEnemy(enemy, target=22){
   if(!_droneGltf||!enemy||!enemy.alive||enemy._droneModel||!enemy.mesh) return;
   const m=SkeletonUtils.clone(_droneGltf.scene);
@@ -2306,6 +2454,7 @@ class EnemyBullet{
   update(dt){
     this.wx+=this.vx*dt;this.wz+=this.vz*dt;this.life-=0.012*dt*60;
     this.mesh.position.set(this.wx,9,this.wz);
+    if(grid && grid.lines && grid.lines.material.opacity>0.1) grid.dimple(this.wx,this.wz,0.6);   // enemy fire wake
     const d=Math.hypot(this.wx,this.wz); if(d>ARENA_R)this.life=0;
     if(this.life>0&&player&&player.alive&&player.inv<=0&&player.py<40){
       if(Math.hypot(player.wx-this.wx,player.wz-this.wz)<20){
@@ -5210,6 +5359,7 @@ class Bullet{
     if(this._g3){ this.y+=this.vy*dt; } // straight-line 3D flight (galaxy) — no floor gravity
     else if(this.y>9){ this.vy-=420*dt; this.y+=this.vy*dt; if(this.y<9){this.y=9;this.vy=0;} }
     this.mesh.position.set(this.wx,this.y,this.wz);
+    if(!this._g3 && grid && grid.lines && grid.lines.material.opacity>0.1) grid.dimple(this.wx,this.wz,0.7);
     if(this._g3){ if(Math.abs(this.wx)>1600||Math.abs(this.wz)>1600||this.y<-300||this.y>1400)this.life=0; }
     else if(GS.zone!==-6&&GS.zone!==-7&&GS.zone!==-9&&(this.wx<-HALF_W-30||this.wx>HALF_W+30||this.wz<-HALF_D-30||this.wz>HALF_D+30))this.life=0; }
   remove(){ scene.remove(this.mesh); }
@@ -5292,6 +5442,9 @@ class Missile{
     }
 
     this.wx+=this.vx*dt; this.wz+=this.vz*dt;
+    // Vertical homing — climb/descend toward the locked target (or settle near ground),
+    // so rockets fired from the air actually arc to where the enemy is.
+    if(GS.zone!==-12){ const tgtY=this.target?(this.target.mesh?this.target.mesh.position.y:10):10; this.y+=(tgtY-this.y)*Math.min(1,dt*3.2); }
 
     // Exhaust trail
     this._trail.push({x:this.wx,z:this.wz,y:this.y});
@@ -5304,13 +5457,14 @@ class Missile{
     this._trailMesh.geometry.setDrawRange(0,Math.min(24,this._trail.length));
 
     // Spark exhaust
-    if(Math.random()<0.7) ps.spark(this.wx+rand(-3,3),this.wz+rand(-3,3),[1,0.5,0.1]);
+    if(Math.random()<0.7) ps.spark(this.wx+rand(-3,3),this.wz+rand(-3,3),[1,0.5,0.1],this.y);
 
     // Orient missile: point nose toward travel direction using lookAt
     // Since geometry is baked along Z, lookAt points +Z toward target
     const spd=Math.hypot(this.vx,this.vz)||1;
     this.group.position.set(this.wx, this.y, this.wz);
     this.group.lookAt(this.wx+this.vx/spd*100, this.y, this.wz+this.vz/spd*100);
+    if(grid && grid.lines && grid.lines.material.opacity>0.1) grid.dimple(this.wx,this.wz,1.4);   // rocket trail wake
 
     // Pulse glow
     this.glow.material.opacity=0.2+0.3*Math.sin(this.t*14);
@@ -5321,19 +5475,21 @@ class Missile{
 
     // Hit enemy
     if(this.target){
-      const d=Math.hypot(this.wx-this.target.wx,this.wz-this.target.wz);
+      const ey=this.target.mesh?this.target.mesh.position.y:10;
+      const d=Math.hypot(this.wx-this.target.wx,this.y-ey,this.wz-this.target.wz);
       if(d<this.target.size+14){ this._explode(); return 0; }
     }
-    // Check all enemies for splash
+    // Check all enemies for splash — 3D, so a high rocket no longer clips ground enemies
     for(const e of enemies){
-      if(Math.hypot(this.wx-e.wx,this.wz-e.wz)<e.size+12){ this._explode(); return 0; }
+      const ey=e.mesh?e.mesh.position.y:10;
+      if(Math.hypot(this.wx-e.wx,this.y-ey,this.wz-e.wz)<e.size+12){ this._explode(); return 0; }
     }
     return 1;
   }
 
   _explode(){
     const BLAST=90; let hitAny=false;
-    ps.burst(this.wx,this.wz,[1,0.5,0.1],10,BLAST*0.5);
+    ps.burst(this.wx,this.wz,[1,0.5,0.1],10,BLAST*0.5,this.y);
     ps.ring(this.wx,this.wz,[1,0.8,0.2],10,BLAST);
     grid.shock(this.wx,this.wz,8); grid.push(this.wx,this.wz,-6,120); grid.pulse(0.5);
     addTrauma(0.045); _physTextBlast(this.wx,this.wz,BLAST*0.5);
@@ -6388,7 +6544,8 @@ class Player{
     } else if(this.model?.userData?.isRobot){
       y0=22+this.py;
     }
-    const isGalaxy = this._inPlanetGravity && GS.zone===-4;
+    const isGalaxy = this._inPlanetGravity && (GS.zone===-4||GS.zone===-12);
+    const isPlasma = GS.zone===-12 && window._pcCenter;
     const dir3FromAngle=(ang)=>{
       // project the flat aim direction onto the surface tangent plane (up = _gN)
       const flat=new THREE.Vector3(Math.cos(ang),0,Math.sin(ang));
@@ -6397,7 +6554,11 @@ class Player{
       return flat.normalize();
     };
     const fire=(ang,kind)=>{
-      if(isGalaxy){
+      if(isPlasma){
+        const C=window._pcCenter; let dx=C.x-spawnX, dy=C.y-y0, dz=C.z-spawnZ; const dl=Math.hypot(dx,dy,dz)||1; dx/=dl;dy/=dl;dz/=dl;
+        dx=dx*0.7+Math.cos(ang)*0.45; dz=dz*0.7+Math.sin(ang)*0.45; dy=dy*0.7+0.3; const mm=Math.hypot(dx,dy,dz)||1;
+        GS.bullets.push(new Bullet(spawnX,spawnZ,dx/mm*bspd,dz/mm*bspd,kind,y0,dy/mm*bspd,true));
+      } else if(isGalaxy){
         const d3=dir3FromAngle(ang)||new THREE.Vector3(Math.cos(ang),0,Math.sin(ang));
         GS.bullets.push(new Bullet(spawnX,spawnZ,d3.x*bspd,d3.z*bspd,kind,y0,d3.y*bspd,true));
       } else {
@@ -6446,7 +6607,7 @@ class Player{
     if(!this._camFocY) this._camFocY=4;
     if(this._inPlanetGravity){
       // Galaxy diorama camera is owned entirely by updateGalaxy — just keep the rim lit and bail.
-      if(GS.zone===-4){
+      if(GS.zone===-4||GS.zone===-12){
         if(ud.rim) ud.rim.material.emissive?.setHex(od?0xffe600:0x00ffc8);
         return;
       }
@@ -6498,7 +6659,7 @@ class Player{
       if(!this._jetFlash) this._jetFlash=0;
       this._jetFlash=Math.max(0,this._jetFlash-0.05);
       // Hide flame when standing on planet surface
-      const onPlanetSurface=GS.zone===-4&&this._inPlanetGravity&&_gOnSurface;
+      const onPlanetSurface=(GS.zone===-4||GS.zone===-12)&&this._inPlanetGravity&&_gOnSurface;
       const intensity=onPlanetSurface?0:this._jetFlash;
       const pulse=intensity>0?0.6+0.4*Math.sin(t*18):0;
       ud.jetCone.material.opacity=Math.min(1,intensity*pulse*0.9);
@@ -6517,20 +6678,20 @@ class Player{
         this.model.add(this._weaponIndicator);
         this._weaponIndicator.position.set(0,4,12); // front of ship
       }
-      while(this._weaponIndicator.children.length) this._weaponIndicator.remove(this._weaponIndicator.children[0]);
-      if(this.secWeapon==='bomb'){
-        const bm=new THREE.Mesh(new THREE.SphereGeometry(2.5,8,6),new THREE.MeshBasicMaterial({color:0xff3366,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
-        this._weaponIndicator.add(bm);
-      } else {
+      if(!this._wiBomb){   // build both representations ONCE — toggle them per frame (no per-frame geometry)
+        this._wiBomb=new THREE.Mesh(new THREE.SphereGeometry(2.5,8,6),new THREE.MeshBasicMaterial({color:0xff3366,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
+        this._weaponIndicator.add(this._wiBomb);
         const body=new THREE.Mesh(new THREE.CylinderGeometry(0.8,0.8,5,6),new THREE.MeshBasicMaterial({color:0x44aaff,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
         const nose=new THREE.Mesh(new THREE.ConeGeometry(0.8,2.5,6),new THREE.MeshBasicMaterial({color:0xffe600,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
         nose.position.y=3.5; body.rotation.x=Math.PI/2;
-        this._weaponIndicator.add(body,nose);
+        this._wiMissile=new THREE.Group(); this._wiMissile.add(body,nose);
+        this._weaponIndicator.add(this._wiMissile);
       }
-      if(this._weaponIndicator.children.length){
-        const pulse=0.8+0.2*Math.sin(performance.now()*0.006);
-        this._weaponIndicator.children.forEach(c=>c.material&&(c.material.opacity=0.7+0.3*pulse));
-      }
+      const _wiBombMode=(this.secWeapon==='bomb');
+      this._wiBomb.visible=_wiBombMode; this._wiMissile.visible=!_wiBombMode;
+      const pulse=0.8+0.2*Math.sin(performance.now()*0.006), _wiOp=0.7+0.3*pulse;
+      this._wiBomb.material.opacity=_wiOp;
+      this._wiMissile.children.forEach(c=>c.material&&(c.material.opacity=_wiOp));
     } // end if(!isRobot)
     if(Math.hypot(this.vx,this.vz)>200&&Math.random()<0.3)
       ps.spark(this.wx-Math.cos(this.aim)*10,this.wz-Math.sin(this.aim)*10,od?[1,0.9,0]:[0,0.4,1]);
@@ -6588,6 +6749,7 @@ function getZoneDef(z){
   if(z===-1) return {name:'TRAINING',subtitle:'Tutorial',color:0x00ff88,glowCol:[0,1,0.5],waves:1,enemies:[],special:'none',desc:'Tutorial'};
   if(z===-2) return {name:'TRAINING ROOM',subtitle:'Weapons Lab',color:0xff8800,glowCol:[1,0.5,0],waves:0,enemies:[],special:'none',desc:'Test weapons on the dummy'};
   if(z===-3) return {name:'PUZZLE LAB',subtitle:'Block Workshop',color:0xaa44ff,glowCol:[0.67,0.27,1],waves:0,enemies:[],special:'none',desc:'Move blocks, jump platforms'};
+  if(z===-12) return {name:'PLASMA CORE',subtitle:'Reactive Singularity',color:0x44ccff,glowCol:[0.27,0.8,1],waves:0,enemies:[],special:'none',desc:'Shoot the core — gravity bends your fire'};
   if(z===-4) return {name:'GALAXY',subtitle:'Planetoid Cluster',color:0x8844ff,glowCol:[0.53,0.27,1],waves:0,enemies:[],special:'none',desc:'Three worlds, one gravity'};
   if(z===-5) return {name:'TRANSITION',subtitle:'Construct Test',color:0x33ffcc,glowCol:[0.2,1,0.8],waves:0,enemies:[],special:'none',desc:'Walk through the gate'};
   if(z===-6) return {name:'GRID CITY',subtitle:'Streaming Test',color:0xffcc00,glowCol:[1,0.8,0],waves:0,enemies:[],special:'none',desc:'Roam the 3x3 streaming world'};
@@ -6700,7 +6862,7 @@ class Powerup{
 // ════════════════════════════════════════════════════════════
 const ZONE_STRIDE=0; // all zones at world origin — grid stays centered // distance between zone centers
 
-function zoneCenter(z){ return {x:((z===-5||z===-6||z===-7||z===-8||z===-9||z===-10||z===-11)?0:z*ZONE_STRIDE), z:0}; }
+function zoneCenter(z){ return {x:((z===-5||z===-6||z===-7||z===-8||z===-9||z===-10||z===-11||z===-12)?0:z*ZONE_STRIDE), z:0}; }
 function toZoneLocal(wx,wz,z){ const c=zoneCenter(z); return {x:wx-c.x,z:wz-c.z}; }
 function fromZoneLocal(lx,lz,z){ const c=zoneCenter(z); return {x:lx+c.x,z:lz+c.z}; }
 
@@ -7637,7 +7799,7 @@ function startGame(levelIdx){
   GS_plants.forEach(p=>p.remove()); GS_plants=[];
   GS_bots.forEach(b=>{ if(b.alive) b.die(); }); GS_bots=[];
   if(GS_trainingDummy){ GS_trainingDummy.remove(); GS_trainingDummy=null; }
-  GS_moveableWalls.forEach(w=>w.remove()); GS_moveableWalls=[]; GS_movingWall=null; _disposePuzzleRoom1(); _disposeGridCity(); _disposeHomeBase(); _disposeSkateArena(); _disposeFractalZone(); _disposePipeZone(); _disposeAssetRoom();
+  GS_moveableWalls.forEach(w=>w.remove()); GS_moveableWalls=[]; GS_movingWall=null; _disposePuzzleRoom1(); _disposeGridCity(); _disposeHomeBase(); _disposeSkateArena(); _disposeFractalZone(); _disposePipeZone(); _disposeAssetRoom(); _disposePlasmaCore();
   if(GS_victoryFX){GS_victoryFX.remove();GS_victoryFX=null;}
   GS_puzzleBlocks.forEach(b=>b.remove()); GS_puzzleBlocks=[];
   player.reset(true);
@@ -7654,6 +7816,7 @@ function startGame(levelIdx){
   else if(GS.zone===-9){ player.wx=0; player.wz=0; player.py=220; player.pvy=0; }
   else if(GS.zone===-10){ player._pipeS=0; player._pipeVS=200; player._pipePhi=0; player._pipeVP=0; player._pipeFwd=null; player.wx=0; player.wz=0; player.py=0; player.pvy=0; player.vx=0; player.vz=0; }
   else if(GS.zone===-11){ player.wx=0; player.wz=0; player.py=0; player.pvy=0; player.vx=0; player.vz=0; }
+  else if(GS.zone===-12){ player.wx=0; player.wz=170; player.py=0; player.pvy=0; player.vx=0; player.vz=0; }
   else { player.wx=0; player.wz=0; }
   grid.setZone(GS.zone);
   // Spawn alien plants scattered around the arena
@@ -7693,6 +7856,7 @@ function startGame(levelIdx){
   else if(GS.zone===-2){ buildTrainingRoom(); }
   else if(GS.zone===-3){ buildPuzzleLab(); }
   else if(GS.zone===-4){ buildGalaxy(); }
+  else if(GS.zone===-12){ buildPlasmaCore(); }
   else if(GS.zone===-5){ buildTransition(); }
   else if(GS.zone===-6){ buildGridCity(); }
   else if(GS.zone===-7){ buildHomeBase(); }
@@ -9038,7 +9202,7 @@ window.addEventListener('keydown',e=>{
   if(e.code==='Space'&&!wasHeld&&GS.state==='playing'&&player){
     e.preventDefault();
     // ── GALAXY: Space = charge-jump on a planet, jetpack in the air ──
-    if(GS.zone===-4){
+    if(GS.zone===-4||GS.zone===-12){
       if(_gOnSurface){ player._charging=true; player._chargeStart=performance.now(); player._jumpCharge=0; }
       else { player._jetting=true; }
       return;
@@ -9120,7 +9284,7 @@ window.addEventListener('keyup',e=>{
   keys[e.code]=false;
   if(e.code==='Space'&&player&&GS.state==='playing'){
     // ── GALAXY: release charge = launch (charge from hold duration); stop jet ──
-    if(GS.zone===-4){
+    if(GS.zone===-4||GS.zone===-12){
       if(player._charging){
         const charge=Math.min(1,(performance.now()-(player._chargeStart||performance.now()))/800);
         player._jumpCharge=charge; player._charging=false; player._chargeStart=0;
@@ -9536,7 +9700,7 @@ function _chargeJumpVel(charge){
 jR.onTap=()=>{
   if(!player||GS.state!=='playing')return;
   // Galaxy planet: use hold duration for charge (set in _start/_end hooks below)
-  if(GS.zone===-4&&_gOnSurface){
+  if((GS.zone===-4||GS.zone===-12)&&_gOnSurface){
     player._jumpTapped=true;
     setTimeout(()=>{ if(player) player._jumpTapped=false; },80);
     return;
@@ -9609,7 +9773,7 @@ jR.onHoldStart=function(){
     // player._charging=true; player._chargeStart=performance.now(); player._jumpCharge=0; return;
   }
   // Galaxy: hold on surface = charge jump (handled above)
-  if(GS.zone===-4&&_gOnSurface) return;
+  if((GS.zone===-4||GS.zone===-12)&&_gOnSurface) return;
   jR._holdingForJet=true;
   jR._holdStartTime=performance.now();
   jR._holdEnteredAimMode=false;
@@ -9646,7 +9810,7 @@ jR.onHoldEnd=function(){
     }
     player._charging=false;
     // Galaxy: release charge = launch
-    if(GS.zone===-4&&player._jumpHeld){
+    if((GS.zone===-4||GS.zone===-12)&&player._jumpHeld){
       player._jumpHeld=false;
       player._jumpTapped=true;
       setTimeout(()=>{ if(player) player._jumpTapped=false; },80);
@@ -9695,10 +9859,40 @@ function screenToPlaneDir(px,py,fromX,fromZ){ _ndc.x=(px/window.innerWidth)*2-1;
 //  MAIN LOOP
 // ════════════════════════════════════════════════════════════
 let lastT=0,frame=0;
+let _perfFps=60;
+function _updatePerfHud(){
+  let el=document.getElementById('perf-hud');
+  if(!el){ el=document.createElement('div'); el.id='perf-hud';
+    el.style.cssText='position:fixed;right:6px;top:60px;z-index:95;font:10px/1.3 monospace;color:#7ddcff;background:rgba(0,0,0,0.62);padding:4px 7px;border-radius:5px;pointer-events:none;white-space:pre;text-align:right';
+    document.body.appendChild(el); }
+  if(typeof GS==='undefined' || (GS.state!=='playing'&&GS.state!=='zoneTransition')){ el.style.display='none'; return; }
+  el.style.display='block';
+  const ri=renderer.info;
+  // compute fastest-growing geometry type since last HUD update
+  let _gtT='',_gtN=0; { const cur=window._geoMake||{}, pv=window._geoMakePrev||{}; for(const k in cur){ const d=cur[k]-(pv[k]||0); if(d>_gtN){_gtN=d;_gtT=k;} } window._geoMakePrev=Object.assign({},cur); }
+  el.textContent=
+    'mk '+(_gtN>0?_gtT.replace('Geometry','')+' '+_gtN:'-')+
+    '\nfps '+_perfFps.toFixed(0)+
+    '\nobjs '+scene.children.length+
+    '\ngeo  '+ri.memory.geometries+
+    '\ntex  '+ri.memory.textures+
+    '\nprog '+(ri.programs?ri.programs.length:0)+
+    '\nenem '+GS.enemies.length+
+    '\ngems '+GS.gems.length+
+    '\nbul  '+GS.bullets.length+
+    '\neb   '+GS.enemyBullets.length+
+    '\nmis  '+GS.missiles.length+
+    '\ndbr  '+GS.deathRings.length+
+    '\nbmb  '+GS.dropBombs.length+
+    '\nhaz  '+(typeof GS_hazards!=='undefined'?GS_hazards.length:0)+
+    '\nbeam '+(typeof _spawnBeams!=='undefined'?_spawnBeams.length:0)+
+    '\nptcl '+(typeof ps!=='undefined'&&ps?ps.n:0);
+}
 function loop(ts){ requestAnimationFrame(loop);
   try{
     let rawDt=Math.min((ts-lastT)/1000,0.033);lastT=ts;frame++;
     updateTime(); const dt=rawDt*TIME.scale;
+    _perfFps=_perfFps*0.9+(rawDt>0?1/rawDt:60)*0.1; if(frame%20===0) _updatePerfHud();
     // ── JETPACK HOLD — airborne, no bomb ──
     if(IS_TOUCH&&jR._holdingForJet&&player&&player.py>8&&!player._onPlatform&&player.boostFuel>0&&!player.bombArmed&&!player._wallClimb){
       player._jetting=true;
@@ -10613,7 +10807,7 @@ function loop(ts){ requestAnimationFrame(loop);
           if(player._wallClimbCooldown>0) player._wallClimbCooldown--;
         } // end for GS_moveableWalls
       } // end if GS.zone===-3
-      if(GS.zone===-4){
+      if(GS.zone===-4||GS.zone===-12){
         updateGalaxy(dt);
       }
       if(GS.zone===-6){ updateGridCity(dt); }
@@ -10622,6 +10816,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===-9){ updateFractalZone(dt); }
       if(GS.zone===-10){ updatePipeZone(dt); }
       if(GS.zone===-11){ updateAssetRoom(dt); }
+      if(GS.zone===-12){ updatePlasmaCore(dt); }
 
       for(let i=GS_bots.length-1;i>=0;i--){
         const bot=GS_bots[i];
@@ -10957,6 +11152,198 @@ class MoveableWall{
 window._galaxyPlanets=[];
 window._galaxyObjects=[];
 
+
+// ════════════════════════════════════════════════════════════
+//  PLASMA CORE — floating "consciousness" orb (zone -12)
+//  Deforming wireframe core + second reactive shell + clustered blobs +
+//  parametric math-curves (spirals/rose) + ~10 tapered coronal arms
+//  (verlet ropes, thick base→thin tip) that flow around the player.
+//  Reuses planetShock / updatePlanetDeform. Direct gravity → you CAN shoot it.
+// ════════════════════════════════════════════════════════════
+window._pcObjs=[]; window._pcCore=null; window._pcCenter=null; window._pcGlow=null;
+window._pcRings=[]; window._pcClusters=null; window._pcArms=[]; window._pcCurves=[]; window._pcShell=null; window._pcCoronaT=0;
+function _disposePlasmaCore(){
+  if(window._pcObjs){ window._pcObjs.forEach(o=>{ scene.remove(o); if(o.traverse)o.traverse(c=>{ if(c.geometry)c.geometry.dispose(); if(c.material)c.material.dispose(); }); if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); }
+  if(window._pcDoor){ if(window._pcDoor.mixer) window._pcDoor.mixer.stopAllAction(); if(window._pcDoor.wrap) scene.remove(window._pcDoor.wrap); window._pcDoor=null; }
+  window._pcObjs=[]; window._pcCore=null; window._pcCenter=null; window._pcGlow=null; window._pcRings=[]; window._pcClusters=null; window._pcArms=[]; window._pcCurves=[]; window._pcShell=null; window._galaxyPlanets=[];
+}
+function _pcLatLon(R,SLAT,SLON){
+  const nv=(SLAT+1)*SLON, baseDir=new Float32Array(nv*3), pos=new Float32Array(nv*3), col=new Float32Array(nv*3);
+  const ix=(la,lo)=>la*SLON+((lo%SLON+SLON)%SLON);
+  for(let la=0;la<=SLAT;la++){ const phi=Math.PI*la/SLAT, cy=Math.cos(phi), sr=Math.sin(phi);
+    for(let lo=0;lo<SLON;lo++){ const th=2*Math.PI*lo/SLON, k=ix(la,lo); const dx=sr*Math.cos(th), dy=cy, dz=sr*Math.sin(th);
+      baseDir[k*3]=dx; baseDir[k*3+1]=dy; baseDir[k*3+2]=dz; pos[k*3]=dx*R; pos[k*3+1]=dy*R; pos[k*3+2]=dz*R; } }
+  const edges=[];
+  for(let la=1;la<SLAT;la++) for(let lo=0;lo<SLON;lo++){ edges.push(ix(la,lo),ix(la,lo+1)); }
+  for(let la=0;la<SLAT;la++)  for(let lo=0;lo<SLON;lo++){ edges.push(ix(la,lo),ix(la+1,lo)); }
+  return {nv,baseDir,pos,col,edges,SLAT,SLON};
+}
+function buildPlasmaCore(){
+  _disposePlasmaCore();
+  const R=66, CY=92, C=new THREE.Vector3(0,CY,0); window._pcCenter=C; const col0=0x55bbff;
+  const inner=new THREE.Mesh(new THREE.SphereGeometry(R*0.86,28,20),new THREE.MeshBasicMaterial({color:0x00040e,side:THREE.FrontSide,depthWrite:true}));
+  inner.position.copy(C); scene.add(inner); _pcObjs.push(inner);
+  const glow=new THREE.Mesh(new THREE.SphereGeometry(R*1.1,22,16),new THREE.MeshBasicMaterial({color:col0,transparent:true,opacity:0.08,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.BackSide}));
+  glow.position.copy(C); scene.add(glow); _pcObjs.push(glow); window._pcGlow=glow;
+  // ── core deforming wireframe (reactive, reuses planet machinery) ──
+  const L=_pcLatLon(R,22,30);
+  const disp=new Float32Array(L.nv), dv=new Float32Array(L.nv);
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(L.pos,3)); geo.setAttribute('color',new THREE.BufferAttribute(L.col,3)); geo.setIndex(L.edges);
+  const lines=new THREE.LineSegments(geo,new THREE.LineBasicMaterial({vertexColors:true,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false}));
+  lines.position.copy(C); scene.add(lines); _pcObjs.push(lines);
+  const core={wx:C.x,wy:C.y,wz:C.z,r:R,col:col0,mesh:lines,geo,baseDir:L.baseDir,disp,dv,pos:L.pos,col:L.col,nv:L.nv,shocks:[],baseColor:new THREE.Color(col0)};
+  _planetColorInit(core); window._pcCore=core;
+  // off-to-the-side interactive door — opens as you walk up to it
+  { const _mkDoor=()=>{ const dr=_makeInteractiveDoor(130,0x66ccff); if(!dr) return false;
+      dr.wrap.position.set(300,0,40); dr.wrap.rotation.y=Math.atan2(C.x-300, C.z-40); // face the orb
+      scene.add(dr.wrap); window._pcDoor=dr; return true; };
+    window._pcDoor=null;
+    if(!_mkDoor()) loadDoorGLB().then(g=>{ if(g && GS.zone===-12 && !window._pcDoor) _mkDoor(); });
+  }
+  // register as the galaxy planet so galaxy gravity/walk applies here
+  window._galaxyPlanets=[core]; window._galaxyObjects=[]; window._arenaPlatforms=[]; window._dropIndicator=null;
+  _g3D=false; _gPos=null; _gOnSurface=false; _gOnPlatform=null;
+  // ── second reactive shell (echoes the core + own slow wobble), magenta ──
+  const R2=R*1.16, L2=_pcLatLon(R2,18,26);
+  const g2=new THREE.BufferGeometry();
+  const p2A=new THREE.BufferAttribute(L2.pos,3); p2A.setUsage(THREE.DynamicDrawUsage);
+  g2.setAttribute('position',p2A); g2.setAttribute('color',new THREE.BufferAttribute(L2.col,3)); g2.setIndex(L2.edges);
+  // tint the shell magenta
+  for(let k=0;k<L2.nv;k++){ L2.col[k*3]=0.8; L2.col[k*3+1]=0.2; L2.col[k*3+2]=0.9; }
+  const shellMesh=new THREE.LineSegments(g2,new THREE.LineBasicMaterial({vertexColors:true,transparent:true,opacity:0.4,blending:THREE.AdditiveBlending,depthWrite:false}));
+  shellMesh.position.copy(C); scene.add(shellMesh); _pcObjs.push(shellMesh);
+  window._pcShell={R2,baseDir:L2.baseDir,pos:L2.pos,nv:L2.nv,posAttr:p2A};
+  // ── parametric math-curves (spherical spiral + rose + sine ring) ──
+  const mkCurve=(fn,nPts,color,op)=>{ const arr=new Float32Array(nPts*3); for(let i=0;i<nPts;i++){ const v=fn(i/(nPts-1)); arr[i*3]=v[0];arr[i*3+1]=v[1];arr[i*3+2]=v[2]; }
+    const cg=new THREE.BufferGeometry(); cg.setAttribute('position',new THREE.BufferAttribute(arr,3));
+    const cl=new THREE.Line(cg,new THREE.LineBasicMaterial({color,transparent:true,opacity:op,blending:THREE.AdditiveBlending,depthWrite:false}));
+    cl.position.copy(C); cl.rotation.set(rand(TAU),rand(TAU),rand(TAU)); scene.add(cl); _pcObjs.push(cl);
+    _pcCurves.push({mesh:cl, ax:rand(-0.25,0.25), ay:0.12+rand(0.3), az:rand(-0.25,0.25)}); };
+  // loxodrome (spherical spiral) pole→pole
+  mkCurve(u=>{ const phi=Math.PI*u, th=TAU*7*u, rr=R*1.34, sr=Math.sin(phi); return [sr*Math.cos(th)*rr, Math.cos(phi)*rr, sr*Math.sin(th)*rr]; }, 260, 0x66ddff, 0.55);
+  // rose curve on a tilted plane
+  mkCurve(u=>{ const a=TAU*u, k=5, rr=R*1.42*(0.55+0.45*Math.cos(k*a)); return [Math.cos(a)*rr, Math.sin(3*a)*R*0.5, Math.sin(a)*rr]; }, 240, 0xff66cc, 0.5);
+  // sine-modulated ring
+  mkCurve(u=>{ const a=TAU*u, rr=R*1.5+Math.sin(a*8)*R*0.14; return [Math.cos(a)*rr, Math.sin(a*4)*R*0.18, Math.sin(a)*rr]; }, 220, 0xaa88ff, 0.5);
+  // ── tilted geometric rings ──
+  const ringCols=[0x55bbff,0x33ffd0];
+  for(let i=0;i<2;i++){ const rr=R*(1.22+i*0.2), segs=80, rp=new Float32Array(segs*3);
+    for(let sgi=0;sgi<segs;sgi++){ const a=sgi/segs*TAU; rp[sgi*3]=Math.cos(a)*rr; rp[sgi*3+2]=Math.sin(a)*rr; }
+    const rg=new THREE.BufferGeometry(); rg.setAttribute('position',new THREE.BufferAttribute(rp,3));
+    const ring=new THREE.LineLoop(rg,new THREE.LineBasicMaterial({color:ringCols[i],transparent:true,opacity:0.35,blending:THREE.AdditiveBlending,depthWrite:false}));
+    ring.position.copy(C); ring.rotation.set(rand(TAU),rand(TAU),rand(TAU)); scene.add(ring); _pcObjs.push(ring);
+    _pcRings.push({mesh:ring, ax:rand(-0.3,0.3), ay:0.15+rand(0.4), az:rand(-0.3,0.3)}); }
+  // ── clustered particle blobs (cohesive, breathing) ──
+  const NC=10, PER=IS_MOBILE?28:44, N=NC*PER;
+  const spos=new Float32Array(N*3), scol=new Float32Array(N*3), clusters=[];
+  const cc=[[0.3,0.7,1],[1,0.25,0.82],[0.55,0.4,1],[0.25,1,0.85]];
+  for(let c=0;c<NC;c++){ const inc=rand(TAU), node=rand(TAU), r=R*(1.25+Math.random()*1.0), phase=rand(TAU), spd=(0.12+Math.random()*0.35)*(Math.random()<0.5?1:-1);
+    const ni=Math.sin(inc)*Math.cos(node), nj=Math.cos(inc), nk=Math.sin(inc)*Math.sin(node);
+    let ux=-nk, uy=0, uz=ni, ul=Math.hypot(ux,uy,uz); if(ul<1e-4){ux=1;uz=0;ul=1;} ux/=ul;uz/=ul;
+    const vx=nj*uz-nk*uy, vy=nk*ux-ni*uz, vz=ni*uy-nj*ux;
+    const cl=cc[c%cc.length], blob=R*(0.3+Math.random()*0.25), off=[];
+    for(let q=0;q<PER;q++){ off.push([rand(-blob,blob),rand(-blob,blob),rand(-blob,blob)]); const gi=(c*PER+q); scol[gi*3]=cl[0];scol[gi*3+1]=cl[1];scol[gi*3+2]=cl[2]; }
+    clusters.push({r,phase,spd,ux,uy,uz,vx,vy,vz,off,spin:rand(-0.5,0.5),breath:rand(TAU)}); }
+  const sg=new THREE.BufferGeometry(); const spA=new THREE.BufferAttribute(spos,3); spA.setUsage(THREE.DynamicDrawUsage);
+  sg.setAttribute('position',spA); sg.setAttribute('color',new THREE.BufferAttribute(scol,3));
+  const swarm=new THREE.Points(sg,new THREE.PointsMaterial({size:IS_MOBILE?5:3.4,vertexColors:true,transparent:true,opacity:0.92,blending:THREE.AdditiveBlending,depthWrite:false,sizeAttenuation:true}));
+  swarm.frustumCulled=false; scene.add(swarm); _pcObjs.push(swarm);
+  window._pcClusters={posAttr:spA, spos, clusters, NC, PER};
+  // ── ~10 tapered coronal arms (verlet TUBES; rooted INSIDE the orb, thick base→thin tip) ──
+  window._pcArms=[];
+  const ARMS=10, M=8, K=5, DEPTH=R*0.5;
+  for(let i=0;i<ARMS;i++){
+    const node=(i/ARMS)*TAU+rand(0.3), inc=Math.acos(rand(-0.9,0.45));
+    const ad=[Math.sin(inc)*Math.cos(node), Math.cos(inc), Math.sin(inc)*Math.sin(node)];
+    const SEG=20+rand(18), baseW=3.5+rand(3.5);   // varied length; thinner base
+    const pts=[]; for(let m=0;m<=M;m++){ const x=C.x+ad[0]*(DEPTH+m*SEG), y=C.y+ad[1]*(DEPTH+m*SEG), z=C.z+ad[2]*(DEPTH+m*SEG); pts.push({x,y,z,px:x,py:y,pz:z}); }
+    let sx=-ad[2], sy=0, sz=ad[0], sl=Math.hypot(sx,sy,sz)||1; sx/=sl;sz/=sl;
+    const TV=(M+1)*K, tpos=new Float32Array(TV*3), tcol=new Float32Array(TV*3), tidx=[];
+    for(let m=0;m<=M;m++){ const f=1-m/M, cr=0.4+0.5*f, cg2=0.5*f+0.12, cb=0.95; for(let k=0;k<K;k++){ const gi=m*K+k; tcol[gi*3]=cr;tcol[gi*3+1]=cg2;tcol[gi*3+2]=cb; } }
+    for(let m=0;m<M;m++) for(let k=0;k<K;k++){ const a0=m*K+k, a1=m*K+(k+1)%K, b0=(m+1)*K+k, b1=(m+1)*K+(k+1)%K; tidx.push(a0,b0,a1, a1,b0,b1); }
+    const tg=new THREE.BufferGeometry(); const tpA=new THREE.BufferAttribute(tpos,3); tpA.setUsage(THREE.DynamicDrawUsage);
+    tg.setAttribute('position',tpA); tg.setAttribute('color',new THREE.BufferAttribute(tcol,3)); tg.setIndex(tidx);
+    const tube=new THREE.Mesh(tg,new THREE.MeshBasicMaterial({vertexColors:true,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
+    scene.add(tube); _pcObjs.push(tube);
+    window._pcArms.push({ad,pts,M,SEG,baseW,K,DEPTH,sx,sy:0,sz,phase:rand(TAU),swayAmp:24+rand(28),tpos,tubePosAttr:tpA});
+  }
+  window._pcCoronaT=1.6;
+  announce('THE CORE','#66ccff');
+  setTimeout(()=>{ try{ announce('it stirs as you near','#aa88ff'); }catch(e){} },1000);
+}
+function updatePlasmaCore(dt){
+  const core=window._pcCore, C=window._pcCenter; if(!core||!C) return;
+  const t=performance.now()*0.001;
+  // interactive door: advance animation + open when the player is near
+  if(window._pcDoor){ const dr=window._pcDoor; if(dr.mixer) dr.mixer.update(dt);
+    const pp=(player&&player.model)?player.model.position:(player?{x:player.wx,z:player.wz}:null);
+    if(pp){ const dd=Math.hypot(pp.x-dr.wrap.position.x, pp.z-dr.wrap.position.z); _doorSet(dr, dd<120, false); } }
+  // (core deform handled by updateGalaxy, which owns _galaxyPlanets here)
+  // proximity swell
+  let pNear=0;
+  if(player){ let dx=player.wx-C.x, dy=(player.py||0)-C.y, dz=player.wz-C.z; const dl=Math.hypot(dx,dy,dz)||1; dx/=dl;dy/=dl;dz/=dl;
+    const reach=core.r*6; if(dl<reach){ pNear=1-dl/reach; const amt=pNear*1.1, bd=core.baseDir, dvv=core.dv;
+      for(let k=0;k<core.nv;k++){ const d=bd[k*3]*dx+bd[k*3+1]*dy+bd[k*3+2]*dz; if(d>0.6){ dvv[k]+=(d-0.6)*amt*dt*10; } } } }
+  // second shell: echo core disp + own wobble
+  const sh=window._pcShell;
+  if(sh){ const bd=sh.baseDir, pp=sh.pos, R2=sh.R2;
+    for(let k=0;k<sh.nv;k++){ const bx=bd[k*3],by=bd[k*3+1],bz=bd[k*3+2];
+      const wob=Math.sin(bx*3+t*0.8)+Math.sin(by*2.4-t*1.0)+Math.sin(bz*2.8+t*0.6);
+      const rr=R2+wob*2.2+pNear*6*(Math.max(0,bx*0+by*0)); pp[k*3]=bx*rr;pp[k*3+1]=by*rr;pp[k*3+2]=bz*rr; }
+    sh.posAttr.needsUpdate=true; }
+  if(window._pcGlow){ window._pcGlow.material.color.setHSL((0.55+0.1*Math.sin(t*0.3))%1,0.85,0.6); window._pcGlow.material.opacity=0.07+0.04*Math.sin(t*0.9)+pNear*0.05; }
+  for(const r of _pcRings){ r.mesh.rotation.x+=r.ax*dt; r.mesh.rotation.y+=r.ay*dt; r.mesh.rotation.z+=r.az*dt; }
+  for(const cv of _pcCurves){ cv.mesh.rotation.x+=cv.ax*dt; cv.mesh.rotation.y+=cv.ay*dt; cv.mesh.rotation.z+=cv.az*dt; }
+  // clustered swarm (orbit + churn + breathe)
+  const sw=window._pcClusters;
+  if(sw){ const sp=sw.spos;
+    for(let c=0;c<sw.NC;c++){ const o=sw.clusters[c], rr=o.r*(1+0.12*Math.sin(t*0.5+o.breath)), th=o.phase+o.spd*t, cx=Math.cos(th), sx=Math.sin(th);
+      const ccx=C.x+(o.ux*cx+o.vx*sx)*rr, ccy=C.y+(o.uy*cx+o.vy*sx)*rr, ccz=C.z+(o.uz*cx+o.vz*sx)*rr;
+      const sp2=Math.sin(t*o.spin), cp=Math.cos(t*o.spin);
+      for(let q=0;q<sw.PER;q++){ const gi=c*sw.PER+q, of=o.off[q], lx=of[0]*cp-of[2]*sp2, lz=of[0]*sp2+of[2]*cp;
+        sp[gi*3]=ccx+lx; sp[gi*3+1]=ccy+of[1]; sp[gi*3+2]=ccz+lz; } }
+    sw.posAttr.needsUpdate=true; }
+  // tapered verlet arms (flow around player)
+  const arms=window._pcArms, TR=38;
+  if(arms&&arms.length){ const px=player?player.wx:1e9, py=player?(player.py||0)+9:1e9, pz=player?player.wz:1e9;
+    for(const A of arms){ const pts=A.pts, M=A.M, SEG=A.SEG;
+      for(let m=1;m<=M;m++){ const p=pts[m]; let vx=(p.x-p.px)*0.9, vy=(p.y-p.py)*0.9, vz=(p.z-p.pz)*0.9; p.px=p.x;p.py=p.y;p.pz=p.z;
+        vy+=-10*dt; const sway=Math.sin(t*0.9+A.phase+m*0.55)*A.swayAmp*dt; vx+=A.sx*sway; vz+=A.sz*sway; p.x+=vx;p.y+=vy;p.z+=vz;
+        let dx=p.x-px, dy=p.y-py, dz=p.z-pz, d=Math.hypot(dx,dy,dz)||1; if(d<TR){ const f=(TR-d)/TR*36; p.x+=dx/d*f*dt*8; p.y+=dy/d*f*dt*8; p.z+=dz/d*f*dt*8; } }
+      const ax=C.x+A.ad[0]*A.DEPTH, ay=C.y+A.ad[1]*A.DEPTH, az=C.z+A.ad[2]*A.DEPTH;
+      for(let it=0;it<3;it++){ pts[0].x=ax;pts[0].y=ay;pts[0].z=az;
+        for(let m=1;m<=M;m++){ const a=pts[m-1], b=pts[m]; let dx=b.x-a.x,dy=b.y-a.y,dz=b.z-a.z; const d=Math.hypot(dx,dy,dz)||1, diff=(d-SEG)/d*0.5, mx=dx*diff,my=dy*diff,mz=dz*diff;
+          if(m-1===0){ b.x-=mx*2;b.y-=my*2;b.z-=mz*2; } else { a.x+=mx;a.y+=my;a.z+=mz; b.x-=mx;b.y-=my;b.z-=mz; } } }
+      // build 3D tube rings (5-sided loft, tapered)
+      const tp=A.tpos, K=A.K, UP=[0,1,0];
+      for(let m=0;m<=M;m++){ const a=pts[Math.max(0,m-1)], b=pts[Math.min(M,m+1)];
+        let dx=b.x-a.x,dy=b.y-a.y,dz=b.z-a.z; const dl=Math.hypot(dx,dy,dz)||1; dx/=dl;dy/=dl;dz/=dl;
+        let n1x=dy*UP[2]-dz*UP[1], n1y=dz*UP[0]-dx*UP[2], n1z=dx*UP[1]-dy*UP[0]; let nl=Math.hypot(n1x,n1y,n1z); if(nl<1e-3){n1x=1;n1y=0;n1z=0;nl=1;} n1x/=nl;n1y/=nl;n1z/=nl;
+        const n2x=dy*n1z-dz*n1y, n2y=dz*n1x-dx*n1z, n2z=dx*n1y-dy*n1x; // dir × n1 (already unit)
+        const w=A.baseW*Math.pow(1-m/M,0.8)+0.4, j=pts[m];
+        for(let k=0;k<K;k++){ const ang=k/K*TAU, ca=Math.cos(ang)*w, sa=Math.sin(ang)*w, gi=m*K+k;
+          tp[gi*3]=j.x+n1x*ca+n2x*sa; tp[gi*3+1]=j.y+n1y*ca+n2y*sa; tp[gi*3+2]=j.z+n1z*ca+n2z*sa; } }
+      A.tubePosAttr.needsUpdate=true; } }
+  // rare soft coronal plume
+  window._pcCoronaT-=dt;
+  if(window._pcCoronaT<=0){ window._pcCoronaT=1.6+Math.random()*2.2;
+    const u=rand(TAU), cz2=rand(-1,1), sr=Math.sqrt(Math.max(0,1-cz2*cz2)); const nx=sr*Math.cos(u), ny=cz2, nz=sr*Math.sin(u);
+    planetShock(core,{x:nx,y:ny,z:nz},8+rand(6));
+    const qx=C.x+nx*core.r, qy=C.y+ny*core.r, qz=C.z+nz*core.r, ec=[[0.4,0.8,1],[0.7,0.4,1],[1,0.5,0.7]][Math.floor(rand(3))], nn=IS_MOBILE?7:12;
+    for(let i=0;i<nn;i++){ const s2=50+rand(90); ps._spawn(qx,qy,qz, nx*s2+rand(-16,16),ny*s2+rand(-16,16),nz*s2+rand(-16,16), ec[0],ec[1],ec[2], 0.018+rand(0.02)); } }
+  // ── DIRECT gravity (restored) — bullets curve in and STRIKE the core ──
+  const GR=46000;
+  for(let i=GS.bullets.length-1;i>=0;i--){ const b=GS.bullets[i]; if(!b._g3) continue;
+    let dx=C.x-b.wx, dy=C.y-(b.y||0), dz=C.z-b.wz; const d2=dx*dx+dy*dy+dz*dz, d=Math.sqrt(d2)||1, a=GR/Math.max(d2,3600)*dt;
+    b.vx+=dx/d*a; b.vy=(b.vy||0)+dy/d*a; b.vz+=dz/d*a;
+    if(d<core.r+6){ planetShock(core,{x:-dx/d,y:-dy/d,z:-dz/d},7); ps.burst(b.wx,b.wz,[0.4,0.8,1],8,70,b.y||C.y); b.life=0; if(b.remove)b.remove(); GS.bullets.splice(i,1); } }
+  for(let i=GS.missiles.length-1;i>=0;i--){ const m=GS.missiles[i]; if(m._gvy===undefined)m._gvy=0;
+    let dx=C.x-m.wx, dy=C.y-(m.y||0), dz=C.z-m.wz; const d2=dx*dx+dy*dy+dz*dz, d=Math.sqrt(d2)||1, a=GR*2.0/Math.max(d2,3600);
+    m.vx+=dx/d*a*dt*60; m.vz+=dz/d*a*dt*60; m._gvy+=dy/d*a*dt*60; m.y=(m.y||0)+m._gvy*dt;
+    if(d<core.r+10){ planetShock(core,{x:-dx/d,y:-dy/d,z:-dz/d},16); if(m._explode)m._explode(); if(m.remove)m.remove(); GS.missiles.splice(i,1); } }
+}
+
 function buildGalaxy(){
   (_galaxyObjects||[]).forEach(o=>scene.remove(o));
   window._galaxyObjects=[];
@@ -11140,6 +11527,7 @@ let _galCamOrbit=0;             // EXPERIMENTAL: right-stick peek offset around 
 const _G_GRAV       = 900;   // gravity accel toward planet centre
 const _G_PR         = 9;     // player foot offset above surface (matches model's 9-unit ground offset)
 const _G_INFLU      = 4.5;   // a planet pulls you when dist < r * this — wide enough that neighbouring wells overlap (no dead gap)
+const _G_PLASMA_INFLU = 2.5; // plasma orb: mid escape radius — you can arc in orbit, a running jump still flings you off
 const _G_MOVE_ACCEL = 950;   // tangential running accel
 const _G_MAX_SPD    = 230;   // top running speed on a surface
 const _G_FRICTION   = 0.80;  // per-frame velocity retention when no input (grounded)
@@ -11156,7 +11544,7 @@ function _dominantPlanet(p){
   for(const pl of _galaxyPlanets){
     const dx=p.x-pl.wx, dy=p.y-pl.wy, dz=p.z-pl.wz;
     const d=Math.sqrt(dx*dx+dy*dy+dz*dz)||1;
-    if(d < pl.r*_G_INFLU){
+    if(d < pl.r*(GS.zone===-12?_G_PLASMA_INFLU:_G_INFLU)){
       const pull=pl.r/d;              // closer + bigger = stronger
       if(pull>bestPull){ bestPull=pull; best=pl; }
     }
@@ -11185,7 +11573,17 @@ function updateGalaxy(dt){
   if(!_g3D){
     _gPos.set(player.wx,player.py,player.wz);
     _gVel.set(player.vx,player.pvy,player.vz);
-    const dom0 = player.py>12 ? _dominantPlanet(_gPos) : null;
+    let dom0=null;
+    if(player.py>12){
+      if(GS.zone===-12){
+        // PLASMA: only mount when you deliberately jump AND are within ~half a body of the surface —
+        // otherwise you just walk up to it and look at it, no auto-capture.
+        const cc=window._pcCenter, cr=(window._pcCore?window._pcCore.r:66);
+        if(cc){ const dd=Math.hypot(_gPos.x-cc.x,_gPos.y-cc.y,_gPos.z-cc.z); if(dd<cr+16) dom0=_dominantPlanet(_gPos); }
+      } else {
+        dom0=_dominantPlanet(_gPos);
+      }
+    }
     if(dom0){
       _g3D=true; _gPlanet=dom0; _gOnSurface=false; _gOnPlatform=null;
       _gQ.copy(player.model?player.model.quaternion.clone():new THREE.Quaternion());
@@ -11295,7 +11693,7 @@ function updateGalaxy(dt){
     // JUMP — keep tangential momentum, add radial pop (charge from hold). Enough charge escapes.
     if(player._jumpTapped){
       const charge=player._jumpCharge||0;
-      const launch=_G_JUMP_BASE+charge*_G_JUMP_RANGE;
+      const launch=_G_JUMP_BASE+charge*(GS.zone===-12?140:_G_JUMP_RANGE);
       _gPos.addScaledVector(N,4);
       _gVel.addScaledVector(N,launch);
       _gOnSurface=false; player._onPlatform=false;
@@ -11308,14 +11706,24 @@ function updateGalaxy(dt){
     _gVel.addScaledVector(N,-_G_GRAV*dt);
     if(tangentMove) _gVel.addScaledVector(tangentMove,_G_AIR_STEER*Math.min(1,inMag)*dt);
     if(player._jetting && player.boostFuel>0){
-      _gVel.y += _G_JET*dt;                 // straight up — consistent lift no matter which planet you're near
+      // plasma: jet 880 vs gravity 900 = net -20, identical hover feel to the ground jetpack (galaxy keeps full lift)
+      _gVel.y += (GS.zone===-12?880:_G_JET)*dt;
       player.boostFuel=Math.max(0,player.boostFuel-38*dt);
       player._jetFlash=1;
+      // jet FX — sound + exhaust plume (the galaxy path normally skips these)
+      if(!player._jetSoundT||player._jetSoundT<=0){ Audio.blip(200+player.boostFuel*2,0.08,'sawtooth',0.05,80); player._jetSoundT=8; }
+      if(player._jetSoundT>0) player._jetSoundT--;
+      const _ex=_gPos.clone().addScaledVector(N,-2);   // just under the feet (N = up)
+      for(let i=0;i<3;i++){
+        ps._spawn(_ex.x+rand(-3,3), _ex.y+rand(-2,2), _ex.z+rand(-3,3),
+          -N.x*rand(50,110)+rand(-8,8), -N.y*rand(50,110)+rand(-8,8), -N.z*rand(50,110)+rand(-8,8),
+          1, 0.4+Math.random()*0.4, 0, 0.05+rand(0.03));
+      }
     } else {
       player.boostFuel=Math.min(player.boostMax,player.boostFuel+18*dt);
     }
     // orbital damping near a planet — bleed sideways speed so you spiral in and settle instead of slinging around
-    if(dom && center){
+    if(dom && center && GS.zone!==-12){   // plasma: skip orbital damping so a running jump slings you off
       const ndc=_gPos.distanceTo(center)||1;
       if(ndc < surfD*2.6){
         const radd=_gPos.clone().sub(center).divideScalar(ndc);
@@ -12099,6 +12507,7 @@ function _pipeBuildSegment(i){
   return g;
 }
 function _pipeMakeBoard(){
+  { const hb=_makeHoverboardModel(34,0xff7ec0); if(hb) return hb; }   // hoverboard GLB (magenta glow) if loaded
   const g=new THREE.Group();
   const deckGeo=new THREE.BoxGeometry(11,1.6,34);
   g.add(new THREE.Mesh(deckGeo,new THREE.MeshBasicMaterial({color:0x1a1020,transparent:true,opacity:0.9}))).position.y=3.2;
@@ -12134,7 +12543,7 @@ function buildAssetRoom(){
   const items=[];
   const ENE=[['Diamond',Diamond],['Bouncer',Bouncer],['Pinwheel',Pinwheel],['Seeker',Seeker],['Drifter',Drifter],['Crawler',Crawler],['Shielder',Shielder],['Turret',Turret],['Ghost',Ghost],['HoverBomber',HoverBomber],['Tank',Tank],['BomberDrone',BomberDrone]];
   for(const [name,Cls] of ENE) items.push({kind:'enemy',name,Cls});
-  items.push({kind:'skate'},{kind:'plant'},
+  items.push({kind:'skate'},{kind:'plant'},{kind:'door'},
     {kind:'powerup',pk:'weapon'},{kind:'powerup',pk:'shield'},{kind:'powerup',pk:'speed'},{kind:'powerup',pk:'magnet'},
     {kind:'portal'},{kind:'climb'},{kind:'block'});
   const N=items.length, stations=[], props=[];
@@ -12146,6 +12555,10 @@ function buildAssetRoom(){
     const it=items[i];
     if(it.kind==='enemy'){ const st={kind:'enemy',Cls:it.Cls,name:it.name,x,z,enemy:null,respawnT:0,bar:_arMakeHpBar()}; stations.push(st); _arSpawnEnemy(st); }
     else if(it.kind==='skate'){ const b=_pipeMakeBoard(); b.position.set(x,12,z); b.scale.setScalar(1.7); group.add(b); props.push({kind:'spin',obj:b,y:12}); }
+    else if(it.kind==='door'){
+      const place=()=>{ const dm=_makeDoorModel(120,0x66ccff); if(dm){ dm.position.set(x,6,z); group.add(dm); (_assetRoom?_assetRoom.props:props).push({kind:'spinSlow',obj:dm}); } return !!dm; };
+      if(!place()) loadDoorGLB().then(g=>{ if(g && _assetRoom && _assetRoom.group===group) place(); });
+    }
     else if(it.kind==='plant'){ const pl=_fractMakePlant(0,0,0.7); pl.position.set(x,6,z); pl.scale.setScalar(0.85); group.add(pl); }
     else if(it.kind==='powerup'){ const pu=new Powerup(x,z,it.pk); group.add(pu.mesh); pu.mesh.position.set(x,8,z); props.push({kind:'powerup',obj:pu.mesh,y:8}); }
     else if(it.kind==='portal'){ const pg=new THREE.Group();
@@ -12186,6 +12599,7 @@ function updateAssetRoom(dt){
     if(pr.kind==='spin'){ pr.obj.rotation.y+=dt*0.8; pr.obj.position.y=pr.y+Math.sin(t*2)*2; }
     else if(pr.kind==='spinZ'){ pr.obj.rotation.z+=dt*1.2; }
     else if(pr.kind==='powerup'){ pr.obj.rotation.y+=dt*1.0; pr.obj.position.y=pr.y+Math.sin(t*2)*3; }
+    else if(pr.kind==='spinSlow'){ pr.obj.rotation.y+=dt*0.4; }
   }
 }
 function _disposeAssetRoom(){
@@ -12337,13 +12751,15 @@ function buildSkateArena(){
   const PER=64, DASH=28, NDASH=Math.ceil(LEN/PER)+2;
   const dashMat=new THREE.MeshBasicMaterial({color:0xf0d020});
   for(let i=0;i<NDASH;i++){ const d=new THREE.Mesh(new THREE.PlaneGeometry(6,DASH),dashMat); d.rotation.x=-Math.PI/2; d.position.set(0,0.07,(i-(NDASH>>1))*PER); roadGroup.add(d); }
-  // Procedural skateboard under the player (swap for a GLB later)
+  // Board under the player — hoverboard GLB (lit) with procedural fallback
   const board=new THREE.Group();
   const trick=new THREE.Group(); trick.position.y=6; board.add(trick);   // pivots at deck height for flips/shove-its
-  const deck=new THREE.Mesh(new THREE.BoxGeometry(15,2.4,58), new THREE.MeshBasicMaterial({color:0x101216})); deck.position.y=0; trick.add(deck);
-  const grip=new THREE.Mesh(new THREE.BoxGeometry(13,0.5,54), new THREE.MeshBasicMaterial({color:0x00ffc8,transparent:true,opacity:0.45,blending:THREE.AdditiveBlending})); grip.position.y=1.3; trick.add(grip);
-  const wgeo=new THREE.CylinderGeometry(4,4,3,12), wmat=new THREE.MeshBasicMaterial({color:0xffcc33});
-  [[-6,18],[6,18],[-6,-18],[6,-18]].forEach(([x,z])=>{ const w=new THREE.Mesh(wgeo,wmat); w.rotation.z=Math.PI/2; w.position.set(x,-3,z); trick.add(w); });
+  _fillBoard(trick, 58, 0x00ffc8, (t)=>{
+    const deck=new THREE.Mesh(new THREE.BoxGeometry(15,2.4,58), new THREE.MeshBasicMaterial({color:0x101216})); deck.position.y=0; t.add(deck);
+    const grip=new THREE.Mesh(new THREE.BoxGeometry(13,0.5,54), new THREE.MeshBasicMaterial({color:0x00ffc8,transparent:true,opacity:0.45,blending:THREE.AdditiveBlending})); grip.position.y=1.3; t.add(grip);
+    const wgeo=new THREE.CylinderGeometry(4,4,3,12), wmat=new THREE.MeshBasicMaterial({color:0xffcc33});
+    [[-6,18],[6,18],[-6,-18],[6,-18]].forEach(([x,z])=>{ const w=new THREE.Mesh(wgeo,wmat); w.rotation.z=Math.PI/2; w.position.set(x,-3,z); t.add(w); });
+  });
   scene.add(board);
   _skateStreet={roadGroup,propGroup,board,trick,halfW:halfRoad+SIDE_W-8,ROAD_W,SIDE_W,per:PER,segProps:new Map(),seg:180};
   if(player){ player._skHeading=0; player._skSpeed=0; player._skSteer=0; player._skLean=0; player.wx=0; player.wz=0; player.py=0; player.pvy=0; player.vx=0; player.vz=0; }
