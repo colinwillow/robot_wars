@@ -249,7 +249,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:6px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-DK</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:6px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-DL</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="position:fixed;top:10px;left:10px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
 </div>
 <div id="fp-crosshair"><div class="ch-t"></div><div class="ch-b"></div><div class="ch-l"></div><div class="ch-r"></div><div class="ch-dot"></div></div>
@@ -6685,6 +6685,7 @@ class Player{
     else if(lvl>=3){ fire(a,'laser');fire(a+0.1,'normal');fire(a-0.1,'normal'); }
     else if(lvl>=2){ fire(a,'normal');fire(a+0.13,'normal');fire(a-0.13,'normal'); }
     else fire(a,'normal');
+    if(MP.active) mpSend('shot',{x:spawnX,z:spawnZ,y:y0,a,lvl,od:!!od});   // 1 event per shot -> remote shows every bullet
     ps.spark(this.wx+Math.cos(a)*14,this.wz+Math.sin(a)*14,[1,0.85,0]); }
   _fireRocket(od){
     const a=this.aim;
@@ -10544,17 +10545,17 @@ function loop(ts){ requestAnimationFrame(loop);
         if(rp._clone) rp._clone.rotation.y=-rp.state.aim+Math.PI/2;
         // Tick their animation mixer
         if(rp.mixer) rp.mixer.update(dt);
-        // Simple animation blend: moving vs idle
+        // Animation: prefer the owner's actual clip (jump/flip/etc.); fall back to move/idle
         if(rp._clips){
-          rp._t=(rp._t||0)+dt;
           const dx=rp.state.x-(rp._prevX||rp.state.x);
           const dz=rp.state.z-(rp._prevZ||rp.state.z);
           const moving=Math.hypot(dx,dz)>0.5;
-          const targetClip=moving?'run_forward':'idle';
-          if(targetClip!==rp._clips._current&&rp._clips[targetClip]){
+          let want=(rp.state.clip||'').replace('.bomb','').replace('.shoot','');
+          if(!want||!rp._clips[want]) want=moving?'run_forward':'idle';
+          if(want!==rp._clips._current&&rp._clips[want]){
             Object.values(rp._clips).forEach(a=>{ if(typeof a.fadeOut==='function') a.fadeOut(0.15); });
-            rp._clips[targetClip].reset().setEffectiveWeight(1).fadeIn(0.15).play();
-            rp._clips._current=targetClip;
+            rp._clips[want].reset().setEffectiveWeight(1).fadeIn(0.15).play();
+            rp._clips._current=want;
           }
           rp._prevX=rp.state.x; rp._prevZ=rp.state.z;
         }
@@ -14305,7 +14306,7 @@ document.getElementById('start-btn')&&document.getElementById('start-btn').addEv
 
 // ── CONFIG — replace with your deployed Partykit URL after deploy ──
 const ABLY_KEY = 'D8JDIg.JWwNUA:UHO9eAg_vdl5BD533eiV7JWGl-heuQYcGmdTgLuXs5c';
-const WS_SERVER_URL = '';   // e.g. 'wss://robits.onrender.com' — leave '' to keep using Ably
+const WS_SERVER_URL = '';   // e.g. 'wss://your-app.onrender.com' — leave '' to keep using Ably
 
 const MP = {
   transport: 'ably', // 'ably' or 'ws' (auto-uses 'ws' when WS_SERVER_URL is set)
@@ -14642,35 +14643,7 @@ function mpRemoveRemotePlayer(id){
 function mpUpdateRemotePlayer(msg){
   const rp=MP.players[msg.id];
   if(!rp) return;
-  Object.assign(rp.state, msg);
-  rp.mesh.position.set(
-    lerp(rp.mesh.position.x, msg.x, 0.3),
-    lerp(rp.mesh.position.y, msg.y||0, 0.3),
-    lerp(rp.mesh.position.z, msg.z, 0.3)
-  );
-  // Aim: player.aim is atan2(z,x) in world space — convert to Three.js Y rotation
-  rp.mesh.rotation.y = -msg.aim - Math.PI/2;
-
-  const clips=rp._clips;
-  if(clips&&msg.clip){
-    const wantClip=msg.clip.replace('.bomb','').replace('.shoot','');
-    if(wantClip!==rp._currentClip){
-      const target=clips[msg.clip]||clips[wantClip]||clips['idle'];
-      if(target&&target.fadeOut){
-        Object.values(clips).forEach(a=>{ if(a&&a.fadeOut) a.fadeOut(0.12); });
-        if(!target.isRunning()) target.reset();
-        target.setEffectiveWeight(1).setEffectiveTimeScale(1).fadeIn(0.12).play();
-        rp._currentClip=wantClip;
-      }
-    }
-  }
-
-  // Simulate bullets — fire on every state packet while firing (throttled by 100ms tick)
-  if(msg.firing&&GS.state==='playing'){
-    const bspd=480, a=msg.aim||0;
-    const sx=msg.x+Math.cos(a)*14, sz=msg.z+Math.sin(a)*14, sy=(msg.y||0)+22;
-    const _rb=new Bullet(sx,sz,Math.cos(a)*bspd,Math.sin(a)*bspd,'normal',sy); _rb._remote=true; GS.bullets.push(_rb);
-  }
+  Object.assign(rp.state, msg);   // store latest only; the per-frame loop is the single owner of position, facing & animation
 }
 
 function mpHandleRemoteEvent(msg){
@@ -14705,9 +14678,15 @@ function mpHandleRemoteEvent(msg){
         GS.dropBombs.push(b);
       }
       break;
-    case 'bullet':
+    case 'shot':
       if(GS.state==='playing'){
-        new Bullet(d.x,d.z,d.dx,d.dz,d.y,1,false);
+        const a=d.a||0, bspd=520, lvl=d.lvl||1;
+        const mk=(ang,kind)=>{ const b=new Bullet(d.x,d.z,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,d.y); b._remote=true; GS.bullets.push(b); };
+        if(d.od){ mk(a,'laser'); mk(a+0.16,'laser'); mk(a-0.16,'laser'); }
+        else if(lvl>=5){ mk(a,'normal'); mk(a+0.1,'normal'); }
+        else if(lvl>=3){ mk(a,'laser'); mk(a+0.1,'normal'); mk(a-0.1,'normal'); }
+        else if(lvl>=2){ mk(a,'normal'); mk(a+0.13,'normal'); mk(a-0.13,'normal'); }
+        else mk(a,'normal');
       }
       break;
     case 'player_hit':
