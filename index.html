@@ -249,7 +249,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:6px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-DL</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:6px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-DM</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="position:fixed;top:10px;left:10px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
 </div>
 <div id="fp-crosshair"><div class="ch-t"></div><div class="ch-b"></div><div class="ch-l"></div><div class="ch-r"></div><div class="ch-dot"></div></div>
@@ -6685,7 +6685,7 @@ class Player{
     else if(lvl>=3){ fire(a,'laser');fire(a+0.1,'normal');fire(a-0.1,'normal'); }
     else if(lvl>=2){ fire(a,'normal');fire(a+0.13,'normal');fire(a-0.13,'normal'); }
     else fire(a,'normal');
-    if(MP.active) mpSend('shot',{x:spawnX,z:spawnZ,y:y0,a,lvl,od:!!od});   // 1 event per shot -> remote shows every bullet
+    if(MP.active) mpSend('event',{event:'shot',data:{x:spawnX,z:spawnZ,y:y0,a,lvl,od:!!od}});   // 1 event per shot -> remote shows every bullet
     ps.spark(this.wx+Math.cos(a)*14,this.wz+Math.sin(a)*14,[1,0.85,0]); }
   _fireRocket(od){
     const a=this.aim;
@@ -6712,6 +6712,7 @@ class Player{
       for(let j=0;j<4;j++) ps._spawn(spawnX+rand(-2,2),y0,spawnZ+rand(-2,2),Math.cos(ang)*rand(40,80),rand(5,20),Math.sin(ang)*rand(40,80),1,0.5,0.1,0.04+rand(0.02));
     });
     this._rocketSide=1-this._rocketSide;
+    if(MP.active) mpSend('event',{event:'shot',data:{x:this.wx,z:this.wz,y:9+this.py,a:this.aim,rocket:true,od:!!od}});
     Audio.blip(220,0.14,'sawtooth',0.18,80);
     this._lastFiring=true;
   }
@@ -14386,19 +14387,7 @@ function mpConnectAbly(roomCode){
     });
     ch.subscribe('enemies', (msg)=>{
       if(MP.isHost) return;
-      if(msg.data.enemies&&GS.enemies){
-        msg.data.enemies.forEach((ed,i)=>{
-          if(GS.enemies[i]){
-            GS.enemies[i].wx=ed.wx; GS.enemies[i].wz=ed.wz;
-            GS.enemies[i].hp=ed.hp;
-            if(!ed.alive&&GS.enemies[i].alive){
-              GS.enemies[i].alive=false;
-              GS.enemies[i].remove&&GS.enemies[i].remove();
-              GS.enemies.splice(i,1);
-            }
-          }
-        });
-      }
+      _mpSyncEnemies(msg.data.enemies);
     });
 
     // Presence: track who's in room
@@ -14448,7 +14437,7 @@ function mpConnectWS(roomCode){
     if(msg.type==='host_changed'){ MP.isHost=(msg.hostId===MP.myId); return; }
     if(msg.type==='enemies'){
       if(MP.isHost) return;
-      if(msg.enemies && GS.enemies){ msg.enemies.forEach((ed,i)=>{ const en=GS.enemies[i]; if(en){ en.wx=ed.wx; en.wz=ed.wz; en.hp=ed.hp; if(!ed.alive&&en.alive){ en.alive=false; en.remove&&en.remove(); GS.enemies.splice(i,1); } } }); }
+      _mpSyncEnemies(msg.enemies);
       return;
     }
     if(msg.type==='player_data'){ if(!MP.players[msg.id]) mpAddRemotePlayer(msg.id, msg); return; }
@@ -14458,6 +14447,17 @@ function mpConnectWS(roomCode){
   ws.onerror = ()=>{ mpStatus('CONNECTION FAILED','#ff4444'); };
 }
 
+const _MP_ETYPES={Diamond,Bouncer,Pinwheel,Seeker,Drifter,Crawler,Shielder,Turret,Ghost,HoverBomber,Tank,BomberDrone};
+function _mpSyncEnemies(list){
+  if(!list||!GS.enemies) return;
+  while(GS.enemies.length>list.length){ const e=GS.enemies.pop(); if(e&&e.remove)e.remove(); }   // drop extras the host no longer has
+  for(let i=0;i<list.length;i++){
+    const ed=list[i]; let e=GS.enemies[i];
+    if(!e){ try{ const Cls=_MP_ETYPES[ed.t]||Diamond; e=new Cls(ed.wx,ed.wz,1); if(e.addToScene)e.addToScene(); GS.enemies[i]=e; }catch(_){ continue; } }  // create missing
+    e.wx=ed.wx; e.wz=ed.wz; if(ed.hp!=null)e.hp=ed.hp;
+    if(ed.alive===false&&e.alive!==false){ e.alive=false; if(e.remove)e.remove(); GS.enemies.splice(i,1); i--; }
+  }
+}
 function mpSend(type, data){
   if(MP.transport==='ws'){ if(MP.ws&&MP.ws.readyState===1) MP.ws.send(JSON.stringify({type, id:MP.myId, ...data})); return; }
   if(!MP.channel||!MP.connected) return;
@@ -14680,13 +14680,19 @@ function mpHandleRemoteEvent(msg){
       break;
     case 'shot':
       if(GS.state==='playing'){
-        const a=d.a||0, bspd=520, lvl=d.lvl||1;
-        const mk=(ang,kind)=>{ const b=new Bullet(d.x,d.z,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,d.y); b._remote=true; GS.bullets.push(b); };
-        if(d.od){ mk(a,'laser'); mk(a+0.16,'laser'); mk(a-0.16,'laser'); }
-        else if(lvl>=5){ mk(a,'normal'); mk(a+0.1,'normal'); }
-        else if(lvl>=3){ mk(a,'laser'); mk(a+0.1,'normal'); mk(a-0.1,'normal'); }
-        else if(lvl>=2){ mk(a,'normal'); mk(a+0.13,'normal'); mk(a-0.13,'normal'); }
-        else mk(a,'normal');
+        const a=d.a||0;
+        if(d.rocket){
+          const offs=d.od?[-0.22,0,0.22]:[0];
+          offs.forEach(o=>{ try{ const m=new Missile(d.x,d.z,Math.cos(a+o),Math.sin(a+o),d.y); m._remote=true; GS.missiles.push(m); }catch(_){ } });
+        } else {
+          const bspd=520, lvl=d.lvl||1;
+          const mk=(ang,kind)=>{ const b=new Bullet(d.x,d.z,Math.cos(ang)*bspd,Math.sin(ang)*bspd,kind,d.y); b._remote=true; GS.bullets.push(b); };
+          if(d.od){ mk(a,'laser'); mk(a+0.16,'laser'); mk(a-0.16,'laser'); }
+          else if(lvl>=5){ mk(a,'normal'); mk(a+0.1,'normal'); }
+          else if(lvl>=3){ mk(a,'laser'); mk(a+0.1,'normal'); mk(a-0.1,'normal'); }
+          else if(lvl>=2){ mk(a,'normal'); mk(a+0.13,'normal'); mk(a-0.13,'normal'); }
+          else mk(a,'normal');
+        }
       }
       break;
     case 'player_hit':
@@ -14763,8 +14769,8 @@ function mpTick(){
   });
   // Host broadcasts enemy positions every 12 frames
   if(MP.isHost&&_mpTick%12===0&&GS.enemies.length){
-    const enemyData=GS.enemies.slice(0,20).map(e=>({
-      wx:Math.round(e.wx), wz:Math.round(e.wz), hp:e.hp, alive:e.alive
+    const enemyData=GS.enemies.slice(0,40).map(e=>({
+      t:e.constructor&&e.constructor.name, wx:Math.round(e.wx), wz:Math.round(e.wz), hp:e.hp, alive:e.alive
     }));
     mpSend('enemies',{enemies:enemyData});
   }
