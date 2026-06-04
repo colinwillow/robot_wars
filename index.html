@@ -249,7 +249,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
 <div id="audio-controls" style="position:fixed;top:10px;right:10px;z-index:999;display:flex;gap:6px">
   <button id="btn-mute-music" onclick="toggleMuteMusic()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="11" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M9 17V5l10-2v12"/><circle cx="6.5" cy="17" r="2.6"/><circle cx="16.5" cy="15" r="2.6"/></svg><span id="mm-lbl">MUSIC</span></button>
   <button id="btn-mute-sfx" onclick="toggleMuteSfx()" style="font-size:9px;letter-spacing:1px;padding:4px 8px;background:#00000088;border:1px solid #ffffff33;color:#ffffffaa;border-radius:4px;display:inline-flex;align-items:center"><svg width="13" height="12" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M4 9.5h3l4-3.5v12l-4-3.5H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg><span id="ms-lbl">SFX</span></button>
-  <div id="build-badge" style="position:fixed;right:6px;bottom:6px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-DN</div>
+  <div id="build-badge" style="position:fixed;right:6px;bottom:6px;z-index:90;font:9px monospace;color:#00ffc8cc;background:#00000077;padding:2px 6px;border-radius:4px;pointer-events:none;letter-spacing:1px">BUILD &#8734;-DO</div>
   <button id="lightmode-btn" onclick="window._toggleLightMode()" style="position:fixed;top:10px;left:96px;z-index:999;height:34px;padding:0 12px;border-radius:8px;border:1px solid #ffffff33;background:rgba(0,0,0,0.45);color:#00ffc8;font:bold 10px monospace;letter-spacing:2px;cursor:pointer;pointer-events:all">LIGHT</button>
 </div>
 <div id="fp-crosshair"><div class="ch-t"></div><div class="ch-b"></div><div class="ch-l"></div><div class="ch-r"></div><div class="ch-dot"></div></div>
@@ -1853,9 +1853,9 @@ function _makeInteractiveDoor(target=130, glowHex=0x66ccff){
     const mx=new THREE.AnimationMixer(root); door.mixer=mx;
     const find=(kw)=>clips.find(c=>c.name&&c.name.toLowerCase().includes(kw));
     const oc=find('open'), cc=find('clos');
-    if(oc){ const a=mx.clipAction(oc); a.clampWhenFinished=true; a.loop=THREE.LoopOnce; door.openA=a; }
-    if(cc){ const a=mx.clipAction(cc); a.clampWhenFinished=true; a.loop=THREE.LoopOnce; door.closeA=a; }
-    if(!oc && clips[0]){ const a=mx.clipAction(clips[0]); a.clampWhenFinished=true; a.loop=THREE.LoopOnce; door.single=a; } // fallback: one clip, play fwd/rev
+    if(oc){ const a=mx.clipAction(oc); a.play(); a.enabled=true; a.paused=true; a.setEffectiveWeight(0); door.openA=a; }   // pose frozen, weight-blended
+    if(cc){ const a=mx.clipAction(cc); a.play(); a.enabled=true; a.paused=true; a.setEffectiveWeight(1); door.closeA=a; }
+    if(!oc && clips[0]){ const a=mx.clipAction(clips[0]); door.single=a; } // fallback: single clip scrubbed fwd/rev by time
   }
   door.noClips=!(door.openA||door.closeA||door.single); door.curOpen=0; door.openDrop=150;
   _doorSet(door,false,true);   // start closed
@@ -1865,15 +1865,17 @@ function _doorSet(door,open,instant){
   if(!door) return;
   if(door.isOpen===open && !instant) return;
   door.isOpen=open;
-  if(door.openA && door.closeA){            // separate open / closed clips
-    const a=open?door.openA:door.closeA, b=open?door.closeA:door.openA;
-    b.stop(); a.reset(); a.play(); if(instant) a.time=a.getClip().duration, door.mixer.update(0);
-  } else {                                   // single clip: forward=open, reverse=close
+  if(door.openA && door.closeA){            // two static poses -> cross-fade weights = smooth swing
+    const to=open?door.openA:door.closeA, from=open?door.closeA:door.openA;
+    to.enabled=true; to.paused=true; to.play();
+    from.enabled=true; from.paused=true; from.play();
+    if(instant){ to.setEffectiveWeight(1); from.setEffectiveWeight(0); if(door.mixer) door.mixer.update(0); }
+    else { from.crossFadeTo(to, 0.5, false); }   // mixer.update(dt) drives the 0.5s blend
+  } else {                                   // single clip: scrub time forward(open)/reverse(close)
     const a=door.openA||door.single; if(!a) return;
-    a.paused=false; a.enabled=true; a.play(); a.timeScale=open?1:-1;
+    a.enabled=true; a.play(); a.timeScale=open?1:-1;
     const d=a.getClip().duration;
-    if(instant){ a.time=open?d:0; }
-    else { if(open && a.time>=d) a.time=0; if(!open && a.time<=0) a.time=d; }
+    if(instant){ a.paused=true; a.time=open?d:0; } else { a.paused=false; if(open && a.time>=d) a.time=0; if(!open && a.time<=0) a.time=d; }
     if(door.mixer) door.mixer.update(0);
   }
 }
