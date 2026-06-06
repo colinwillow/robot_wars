@@ -964,7 +964,8 @@ function updateCamera(dt){
   const sh=CAM.trauma*CAM.trauma*0.5, t=performance.now()*0.05;
   const shX=(Math.sin(t*1.7)+Math.sin(t*3.3))*0.5*sh*14;
   const shY=(Math.sin(t*2.1)+Math.sin(t*4.7))*0.5*sh*14;
-  camera.position.set(cx+shX,cy+shY,cz);
+  if(_glExitBlend<1 && GS.zone===-15){ _glExitBlend=Math.min(1,_glExitBlend+dt/0.7); const ee=_glExitBlend<0.5?2*_glExitBlend*_glExitBlend:1-Math.pow(-2*_glExitBlend+2,2)/2; camera.position.lerpVectors(_glExitFrom,new THREE.Vector3(cx+shX,cy+shY,cz),ee); }
+  else camera.position.set(cx+shX,cy+shY,cz);
   const aheadX=CAM.tfocus.x-Math.sin(CAM.yaw)*lookAheadDist;
   const aheadZ=CAM.tfocus.z-Math.cos(CAM.yaw)*lookAheadDist;
   camera.lookAt(aheadX, CAM.tfocus.y+8, aheadZ);
@@ -6777,14 +6778,24 @@ class Player{
       else { this.wx=dx; this.wz=dz; }
       if(Math.random()<0.8)ps.spark(this.wx,this.wz,[0,0.85,1]); grid.push(this.wx,this.wz,-0.3,38);
     } else {
-      // Galaxy planet state owns movement but still allow aim/shoot
+      // Galaxy/lab planet state owns movement but still allows aim/shoot
       if(this._inPlanetGravity){
-        const al=Math.hypot(avx,avz);
-        if(al>0.15) this.aim=Math.atan2(avz,avx);
+        const sMag=Math.hypot(shootIn.x,shootIn.y);
+        if(sMag>0.15 && typeof camera!=='undefined'){
+          // aim in the surface tangent plane, mapped to the camera's screen axes (same as movement) -> works on any face/wall
+          const N=_gN;
+          const cu=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,1);   // camera screen-up
+          const crr=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0);  // camera screen-right
+          let af=cu.addScaledVector(N,-cu.dot(N)); if(af.lengthSq()<1e-5){ af.set(0,0,1).addScaledVector(N,-N.z); } af.normalize();
+          let ar=crr.addScaledVector(N,-crr.dot(N)); if(ar.lengthSq()<1e-5) ar.crossVectors(af,N); ar.normalize();
+          const aim=af.multiplyScalar(-shootIn.y).addScaledVector(ar,shootIn.x);
+          if(aim.lengthSq()>1e-4){ aim.normalize(); this._aim3D=this._aim3D||new THREE.Vector3(); this._aim3D.copy(aim); this._aim3DActive=true; this.aim=Math.atan2(aim.z,aim.x); }
+        } else { this._aim3DActive=false; const al0=Math.hypot(avx,avz); if(al0>0.15) this.aim=Math.atan2(avz,avx); }
         this.fireT++;
+        const al=Math.hypot(avx,avz);
         const isRockets=this.primaryWeapon==='rockets';
         const fireRate=od?4:isRockets?14:(this.weaponLevel>=4?3:this.weaponLevel>=2?4:5);
-        if(firing&&al>0.15&&this.fireT>=fireRate){
+        if(firing&&(sMag>0.15||al>0.15)&&this.fireT>=fireRate){
           this.fireT=0;
           if(isRockets) this._fireRocket(od);
           else this._shoot(od);
@@ -6911,7 +6922,7 @@ class Player{
 
     // ── VERTICAL PHYSICS — gravity + jetpack ──
     const GRAV=220;
-    const JET_FORCE=200;    // reduced — was 380, too much vertical loft
+    const JET_FORCE=440;    // strong loft again (net +220 vs the 220 ground gravity); unified with the planet jet
     const JET_DRAIN=55;     // faster drain — was 28
     const JET_RECHARGE=14;  // in-air recharge when not jetting — boost returns over a jump's arc
     const GND_RECHARGE=35;  // ground recharge unchanged
@@ -7183,7 +7194,7 @@ class Player{
     else if(lvl>=2){ fire(a,'normal');fire(a+0.13,'normal');fire(a-0.13,'normal'); }
     else fire(a,'normal');
     if(MP.active) mpSend('event',{event:'shot',data:{x:spawnX,z:spawnZ,y:y0,a,lvl,od:!!od}});   // 1 event per shot -> remote shows every bullet
-    ps.spark(this.wx+Math.cos(a)*14,this.wz+Math.sin(a)*14,[1,0.85,0]); }
+    { const _md=(this._aim3DActive&&this._aim3D)?this._aim3D:{x:Math.cos(a),z:Math.sin(a)}; const _my=(this._inPlanetGravity?(this.py+10):5); ps.spark(this.wx+_md.x*14,this.wz+_md.z*14,[1,0.85,0],_my); } }
   _fireRocket(od){
     const a=this.aim;
     const spread=od?0.22:0.14;
@@ -10891,15 +10902,15 @@ class Joystick{
   setOutput(o){this.out=o;}
   setHold(fn){this.onHold=fn;}  // called each frame while held — for jetpack
   _start(e){e.preventDefault();if(this.id!==null)return;const t=e.changedTouches[0],r=this.elem.getBoundingClientRect();this.cx=r.left+r.width/2;this.cy=r.top+r.height/2;this.id=t.identifier;
-    this._tapStart=performance.now();this._tapMoved=false;
+    this._tapStart=performance.now();this._tapMoved=false;this._tapPeak=0;
     if(this.onHoldStart)this.onHoldStart();
     this._apply(t);}
   _move(e){if(this.id===null)return;for(const t of e.changedTouches)if(t.identifier===this.id){e.preventDefault();
-    const dx=t.clientX-this.cx,dy=t.clientY-this.cy;if(Math.hypot(dx,dy)>15)this._tapMoved=true;
+    const dx=t.clientX-this.cx,dy=t.clientY-this.cy; const _pm=Math.hypot(dx,dy); if(_pm>15)this._tapMoved=true; const _pf=_pm/(this.R||60); if(_pf>(this._tapPeak||0))this._tapPeak=_pf;
     this._apply(t);break;}}
   _end(e){if(this.id===null)return;for(const t of e.changedTouches)if(t.identifier===this.id){
     const held=performance.now()-this._tapStart;
-    if(!this._tapMoved&&held<220&&this.onTap&&GS.state==='playing')this.onTap();
+    if(!this._tapMoved&&(this._tapPeak||0)<0.4&&held<220&&this.onTap&&GS.state==='playing')this.onTap();
     if(this.onHoldEnd)this.onHoldEnd();
     this.id=null;if(this.out){this.out.x=0;this.out.y=0;}this.knob.style.transform='translate(-50%,-50%)';break;}}
   _apply(t){const dx=t.clientX-this.cx,dy=t.clientY-this.cy,dist=Math.hypot(dx,dy)||0.001,ang=Math.atan2(dy,dx),cl=Math.min(dist,this.R);
@@ -11205,7 +11216,7 @@ jR.onTap=()=>{
 // 2. Airborne (no bomb) → jetpack
 jR.onHoldStart=function(){
   if(!player||GS.state!=='playing')return;
-  const onGround=player.py<=8||player._onPlatform||_gOnSurface;
+  const onGround=player.py<=8||player._onPlatform||_gOnSurface||(player._inPlanetGravity&&player._glGrounded);
   // ── CHARGE / SUPER JUMP DISABLED ──
   // Holding the right stick on the ground/surface used to charge a big launch that fired on release —
   // far too easy to fling yourself by accident while aiming or peeking the camera. Now: tap = hop,
@@ -11221,9 +11232,7 @@ jR.onHoldStart=function(){
   jR._holdEnteredAimMode=false;
   jR._holdOriginX=shootIn.x;
   jR._holdOriginY=shootIn.y;
-  if(player.py>8&&!player._onPlatform&&!player.bombArmed&&!player._wallClimb){
-    player._jetting=true;
-  }
+  jR._jetLatch=false; jR._jetEligible=true; jR._jetCenterStart=performance.now();   // jet latches only after dwelling centered (deliberate); a fire push cancels it
 };
 jR.onHoldEnd=function(){
   if(player){
@@ -11281,6 +11290,7 @@ jR.onHoldEnd=function(){
   }
   jR._holdEnteredAimMode=false;
   jR._holdingForJet=false;
+  jR._jetLatch=false; jR._jetEligible=false;
 };
 // contextmenu suppressed — right-click is jump
 
@@ -11343,8 +11353,16 @@ function loop(ts){ requestAnimationFrame(loop);
     if(_fly&&_fly.active){ updateFlight(dt); renderer.render(scene,camera); return; }
     if(_drive&&_drive.active){ updateDrive(dt); renderer.render(scene,camera); return; }
     // ── JETPACK HOLD — airborne, no bomb ──
-    if(IS_TOUCH&&jR._holdingForJet&&player&&player.py>8&&!player._onPlatform&&player.boostFuel>0&&!player.bombArmed&&!player._wallClimb){
-      player._jetting=true;
+    if(IS_TOUCH&&jR._holdingForJet&&player&&!player.bombArmed&&!player._wallClimb){
+      const _air = player._inPlanetGravity ? !player._glGrounded : (player.py>8&&!player._onPlatform);
+      if(!_air){ jR._jetLatch=false; jR._jetEligible=false; }
+      else if(player.boostFuel>0){
+        const _sm=Math.hypot(shootIn.x,shootIn.y);
+        if(_sm>=0.4) jR._jetEligible=false;                                                                    // pushed out to fire -> this hold will NOT jet
+        if(jR._jetEligible && _sm<0.4 && (performance.now()-(jR._jetCenterStart||0))>200) jR._jetLatch=true;    // dwelled centered -> deliberate jet
+        if(jR._jetLatch) player._jetting=true;                                                                 // once jetting, keep it (slide out to fire too)
+      }
+      else { jR._jetLatch=false; jR._jetEligible=false; player._jetting=false; }                               // OUT OF FUEL -> cut the jet; release and press again to resume
     }
 
     // ── 3D BOMB AIM MODE — right stick held STILL for 400ms while bomb armed ──
@@ -15287,11 +15305,22 @@ class GridSheet{
 let _glSheets=[], _glKind=0, _glMeta=null;
 let _glMorphBtn=null;   // physical walk-over pad that toggles sphere<->cube
 let _glLastTN=new THREE.Vector3(0,0,1);   // last good tangent "north" (parallel transport across poles)
+let _glCubeN=new THREE.Vector3(0,1,0);   // current cube face the player is magnetised to
+let _glCamAzi=new THREE.Vector3(1,0,0);
+let _glCamDir=new THREE.Vector3(1,0.4,0).normalize();   // smoothed 3D orbit direction (keeps the player in front of the shape)
 let _occV=new THREE.Vector3(), _occW=new THREE.Vector3();   // camera-occlusion ghosting scratch
 let _glCamLook=new THREE.Vector3();   // smoothed orbit-camera look target
+let _GL_CAM_D=420;   // planet camera zoom distance (bigger = more zoomed out)
+let _glCamSide=new THREE.Vector3(0,0,1);   // the SIDE face the camera's XZ position is anchored to
+let _glCubeSeeThru=false;                   // true while on the bottom -> cube fades so you can see the player
+let _glEdge=new THREE.Vector3(1,0,1).normalize();   // the vertical EDGE (between two side faces) the camera is anchored to
+let _glPrevSide=new THREE.Vector3(0,0,1);           // last side face walked on (to pick the next edge)
+let _glCamFwd=new THREE.Vector3(0,0,-1);   // chase-cam trail dir (tangent to the surface, follows the player's facing)
+let _glCamUp=new THREE.Vector3(0,1,0);     // chase-cam up, eased world-up -> surface normal (kills the pole flip)
 let _glCamFrom=new THREE.Vector3(); let _glCamBlend=1;   // eased entry blend
+let _glExitFrom=new THREE.Vector3(); let _glExitBlend=1;   // eased EXIT blend (planet cam -> normal cam)
 let _glMorphT=0, _glMorphTo=0;   // 0 = cube, 1 = sphere (center shape morph)
-const _GL_FLOAT_Y=130;            // sphere floats well above the floor; you must jump (or jet) up to it
+const _GL_CUBE_Y=150, _GL_SPHERE_Y=175;   // both float well off the floor (sphere a little higher)
 let _glGravOn=false; let _glGVel=new THREE.Vector3(); let _glLastN=new THREE.Vector3(0,1,0);   // localized planet gravity on the lab sphere
 let _glRoot=null, _glWarp=false, _glWarpS=1, _glWarpV=0, _glWarpT=0;
 const _GL_KINDS=['platform','wall','cube'];
@@ -15362,7 +15391,7 @@ function _glBuildPlatforms(){
 }
 function _glPrepCubeMorph(){
   // spherify the cube: each node maps to its normalized position on a sphere of radius R (same verts)
-  const R=72, P=new THREE.Vector3(), T=new THREE.Vector3();
+  const R=96, P=new THREE.Vector3(), T=new THREE.Vector3();
   for(const s of _glSheets){
     s._cU=new Float32Array(s.ru); s._cV=new Float32Array(s.rv);                 // cube rest (snapshot)
     s._sU=new Float32Array(s.n); s._sV=new Float32Array(s.n); s._sY=new Float32Array(s.n);
@@ -15441,6 +15470,7 @@ function _glGhostOccluders(){
     _occW.sub(camP); const t=_occW.dot(seg);                                      // distance along the camera->player ray
     let occ=false;
     if(t>14 && t<segLen-22){ const perp=_occW.addScaledVector(seg,-t).length(); if(perp < s._occR) occ=true; }   // center near the ray, in front of the player
+    if(_glCubeSeeThru && _glSheets.includes(s)) occ=true;   // on the bottom -> force the whole cube see-through
     s._ghost=(s._ghost||0)+((occ?1:0)-(s._ghost||0))*0.18;                        // smooth fade
     const g=s._ghost;
     if(s.fill){ if(!s.fill.material.transparent) s.fill.material.transparent=true; s.fill.material.opacity=1-g*0.94; s.fill.material.depthWrite=(g<0.5); }
@@ -15457,7 +15487,7 @@ function _glUpdateMorphButton(dt){
   b.ring.material.opacity=0.35+0.3*Math.sin(b.t*4); b.ring.scale.setScalar(1+0.12*Math.sin(b.t*3));
   b.glow.material.opacity=0.10+0.10*Math.sin(b.t*5);
   const d=Math.hypot(player.wx-b.wx, player.wz-b.wz);
-  if(b.armed && !_glGravOn && player.py<30 && d<22){           // stepped on it (on the ground, not on the planet)
+  if(b.armed && !_glGravOn && player.py<14 && d<22){           // triggers only when standing ON it (low to the ground)
     b.armed=false;
     _glMorphTo = toSphere?1:0;                                 // toggle
     ps.ring(b.wx,b.wz, toSphere?[1,0.24,0.88]:[0.2,0.87,1], 18, 90);
@@ -15465,41 +15495,182 @@ function _glUpdateMorphButton(dt){
     if(typeof Audio!=='undefined') Audio.blip(660,0.3,'sine',0.28,1320);
     if(typeof announce==='function') announce(toSphere?'MORPH \u2192 SPHERE':'MORPH \u2192 CUBE', toSphere?'#ff3ce0':'#33ddff');
   }
-  if(!b.armed && d>34) b.armed=true;                            // re-arm once you step off
+  if(!b.armed && (d>34 || player.py>24)) b.armed=true;          // re-arm if you step away OR jump up (so landing back re-triggers)
 }
 function buildGridLab(){
   _glClearSheets(); GS.survival=false; GS.boss=null; _glKind=2; _glBuildShapes(); _glBuildWall(); _glBuildPlatforms(); _glBuildMorphButton();
-  const b=document.getElementById('gl-build'); if(b){ b.style.display='block'; b.textContent='WARP \u27f3'; }
+  const b=document.getElementById('gl-build'); if(b) b.style.display='none';   // removed: the physical pad handles morph now
   const sb=document.getElementById('gl-shape'); if(sb)sb.style.display='none';   // replaced by the physical walk-over pad
+}
+function _glOrbitCam(C, P, DIM, dt){
+  // The "chef's kiss" planet camera: world-up (always LEVEL, never rolls), only yaws around Y to face whichever
+  // side you're on. side.y*=0.35 damps the vertical so top/bottom don't flip it; high angle looks down at the shape.
+  if(typeof camera==='undefined') return;
+  camera.up.set(0,1,0);
+  let side=P.clone().sub(C); side.y*=0.35; if(side.lengthSq()<1) side.set(Math.sin(CAM.yaw),0,Math.cos(CAM.yaw)); side.normalize();
+  const eye=C.clone().addScaledVector(side,DIM*3.4); eye.y+=DIM*1.8;
+  const ltx=C.x+(P.x-C.x)*0.25, lty=C.y+DIM*0.1+(P.y-C.y)*0.25, ltz=C.z+(P.z-C.z)*0.25;
+  if(_glCamLook.lengthSq()<1e-6)_glCamLook.set(ltx,lty,ltz);
+  _glCamLook.x+=(ltx-_glCamLook.x)*0.12; _glCamLook.y+=(lty-_glCamLook.y)*0.12; _glCamLook.z+=(ltz-_glCamLook.z)*0.12;
+  if(_glCamBlend<1){ _glCamBlend=Math.min(1,_glCamBlend+dt/0.55); const e=_glCamBlend<0.5?2*_glCamBlend*_glCamBlend:1-Math.pow(-2*_glCamBlend+2,2)/2; camera.position.lerpVectors(_glCamFrom,eye,e); }
+  else camera.position.lerp(eye,0.16);
+  camera.lookAt(_glCamLook.x,_glCamLook.y,_glCamLook.z);
+  CAM.focus.set(C.x,C.y,C.z); CAM.tfocus.set(C.x,C.y,C.z); CAM.trauma=Math.max(0,CAM.trauma-dt*3.2);
+}
+function _glFaceCam(C, F, H, P, dt){
+  // EDGE-ANCHORED LEVEL camera. Parks at the vertical EDGE between two adjacent side faces (3/4 perspective).
+  // While you're on either of that edge's two faces it just re-aims (tilts); only when you cross onto a THIRD face
+  // does it swing to a new edge (between the face you left and the one you entered). Top/bottom keep the edge and
+  // re-aim only (top adds a slight Y lift; bottom fades the cube). World-up (never rolls).
+  if(typeof camera==='undefined') return;
+  camera.up.set(0,1,0);
+  const ax=Math.abs(F.x),ay=Math.abs(F.y),az=Math.abs(F.z);
+  const Fcur=(ax>=ay&&ax>=az)?new THREE.Vector3(Math.sign(F.x)||1,0,0):(ay>=az)?new THREE.Vector3(0,Math.sign(F.y)||1,0):new THREE.Vector3(0,0,Math.sign(F.z)||1);
+  _glCubeSeeThru = (Fcur.y < -0.5);
+  if(Math.abs(Fcur.y)<0.5){                                 // on a SIDE face -> maintain the edge anchor
+    if(_glEdge.dot(Fcur) <= 0.4){                           // Fcur not part of the current edge -> pick a new edge
+      if(_glPrevSide.lengthSq()>0.5 && _glPrevSide.dot(Fcur)<0.9) _glEdge.copy(_glPrevSide).add(Fcur).normalize();
+      else { const other=(Math.abs(Fcur.x)>0.5)? new THREE.Vector3(0,0,Math.sign(P.z-C.z)||1):new THREE.Vector3(Math.sign(P.x-C.x)||1,0,0); _glEdge.copy(Fcur).add(other).normalize(); }
+    }
+    _glPrevSide.copy(Fcur);
+  }
+  if(_glEdge.lengthSq()<0.5) _glEdge.set(1,0,1).normalize();
+  const D=_GL_CAM_D;
+  // EYE: out along the edge diagonal, lifted, level (only moves when the edge changes)
+  const eye=C.clone().addScaledVector(_glEdge, H + D*0.86); eye.y+=D*0.54;
+  if(Fcur.y>0.5) eye.y += D*0.18;                           // top -> slight extra height for a better vantage
+  // LOOK: the face you're actually on, nudged toward the player
+  const faceCenter=C.clone().addScaledVector(Fcur,H);
+  const NUDGE=0.22;
+  const ltx=faceCenter.x+(P.x-faceCenter.x)*NUDGE, lty=faceCenter.y+(P.y-faceCenter.y)*NUDGE, ltz=faceCenter.z+(P.z-faceCenter.z)*NUDGE;
+  if(_glCamLook.lengthSq()<1e-6)_glCamLook.set(ltx,lty,ltz);
+  _glCamLook.x+=(ltx-_glCamLook.x)*0.10; _glCamLook.y+=(lty-_glCamLook.y)*0.10; _glCamLook.z+=(ltz-_glCamLook.z)*0.10;
+  if(_glCamBlend<1){ _glCamBlend=Math.min(1,_glCamBlend+dt/0.6); const e=_glCamBlend<0.5?2*_glCamBlend*_glCamBlend:1-Math.pow(-2*_glCamBlend+2,2)/2; camera.position.lerpVectors(_glCamFrom,eye,e); }
+  else camera.position.lerp(eye,0.09);
+  camera.lookAt(_glCamLook.x,_glCamLook.y,_glCamLook.z);
+  CAM.focus.copy(faceCenter); CAM.tfocus.copy(faceCenter); CAM.trauma=Math.max(0,CAM.trauma-dt*3.2);
+}
+function _glChaseCam(P, N, fwd, dt){
+  if(typeof camera==='undefined') return;
+  const Nn=N.clone().normalize();
+  // trail direction follows the player's facing, kept tangent to the surface (parallel-transported, so crossing a pole never snaps)
+  if(_glCamFwd.lengthSq()<1e-6) _glCamFwd.copy(fwd);
+  _glCamFwd.lerp(fwd,0.04);
+  _glCamFwd.addScaledVector(Nn,-_glCamFwd.dot(Nn));
+  if(_glCamFwd.lengthSq()<1e-5){ _glCamFwd.set(0,1,0).addScaledVector(Nn,-Nn.y); if(_glCamFwd.lengthSq()<1e-5)_glCamFwd.set(1,0,0).addScaledVector(Nn,-Nn.x); }
+  _glCamFwd.normalize();
+  // up eases from whatever it was (world-up on entry) toward the surface normal — never parallel to the view dir, so no 180 gimbal
+  _glCamUp.lerp(Nn,0.10); if(_glCamUp.lengthSq()<1e-5)_glCamUp.copy(Nn); _glCamUp.normalize();
+  const BACK=220, UP=180, LOOKUP=26, LOOKAHEAD=46;   // ~matches the normal cam (dist 230 / height 200)
+  const eye=P.clone().addScaledVector(_glCamFwd,-BACK).addScaledVector(Nn,UP);
+  const lx=P.x+_glCamFwd.x*LOOKAHEAD+Nn.x*LOOKUP, ly=P.y+_glCamFwd.y*LOOKAHEAD+Nn.y*LOOKUP, lz=P.z+_glCamFwd.z*LOOKAHEAD+Nn.z*LOOKUP;
+  camera.up.copy(_glCamUp);
+  if(_glCamBlend<1){ _glCamBlend=Math.min(1,_glCamBlend+dt/0.6); const e=_glCamBlend<0.5?2*_glCamBlend*_glCamBlend:1-Math.pow(-2*_glCamBlend+2,2)/2; camera.position.lerpVectors(_glCamFrom,eye,e); }
+  else camera.position.lerp(eye,0.16);
+  camera.lookAt(lx,ly,lz);
+  CAM.focus.set(P.x,P.y,P.z); CAM.tfocus.set(P.x,P.y,P.z); CAM.trauma=Math.max(0,CAM.trauma-dt*3.2);
 }
 function _glExitGrav(P,V){
   _glGravOn=false; if(player){ player._inPlanetGravity=false; player._onPlatform=false; player._galSpeed=0; }
   if(P&&player){ player.wx=P.x; player.wz=P.z; player.py=Math.max(0,P.y); player.vx=(V?V.x:0)*0.6; player.vz=(V?V.z:0)*0.6; player.pvy=V?Math.min(0,V.y):0; }
-  _gN.set(0,1,0); player._aim3DActive=false;
+  _gN.set(0,1,0); player._aim3DActive=false; if(typeof camera!=='undefined'){ camera.up.set(0,1,0); _glExitFrom.copy(camera.position); _glExitBlend=0; }
   if(player){ CAM.tfocus.set(player.wx,4,player.wz); CAM.focus.copy(CAM.tfocus); }   // snap focus back to the player so the flat cam resumes clean (no stuck 90deg)
   if(player&&player.model){ player.model.quaternion.identity(); player.model.rotation.set(0,-player.aim+Math.PI/2,0); }
 }
 // Self-contained Mario-Galaxy-style gravity well around the lab sphere. Owns the player only while captured.
 function updateLabGravity(dt){
   if(!player) return;
-  // ── BIG on-screen diagnostic (top-centre) so we can see exactly what's happening ──
-  if(frame%4===0){ let d=document.getElementById('grav-dbg');
-    if(!d){ d=document.createElement('div'); d.id='grav-dbg'; d.style.cssText='position:fixed;left:50%;top:84px;transform:translateX(-50%);z-index:99999;font:bold 18px/1.5 monospace;color:#ff5b7b;background:rgba(0,0,0,0.8);padding:10px 18px;border-radius:10px;pointer-events:none;text-align:center;white-space:pre'; document.body.appendChild(d); }
-    const _sr=!!(_glMeta&&_glMeta.kind==='cube'&&_glRoot&&_glMorphT>0.6);
-    const _cy=_glRoot?_glRoot.position.y:-999, _dd=_glRoot?Math.hypot(player.wx,player.py-_cy,player.wz):-1;
-    d.textContent='GRAV '+(_glGravOn?'ON':'OFF')+'   ready '+(_sr?'Y':'N')+'\nmorphT '+(_glMorphT||0).toFixed(2)+'   centerY '+_cy.toFixed(0)+'\ndist '+_dd.toFixed(0)+'   py '+player.py.toFixed(0);
-  }
+  { const _gd=document.getElementById("grav-dbg"); if(_gd) _gd.remove(); }
   if(!player.alive) return;
+  // ════════ CUBE MAGNETIC WALKING (electric boots) ════════
+  if(_glMeta && _glMeta.kind==='cube' && _glRoot && _glMorphT < 0.5){
+    const C=new THREE.Vector3(_glRoot.position.x,_glRoot.position.y,_glRoot.position.z);
+    const H=72, PR=9, surfN=H+PR;
+    const P=new THREE.Vector3(player.wx,player.py,player.wz);
+    const r0=P.clone().sub(C);
+    const cheb=Math.max(Math.abs(r0.x),Math.abs(r0.y),Math.abs(r0.z));
+    if(!_glGravOn){                                   // ENTER: jumped/jetted up next to a face
+      if(player.py>18 && cheb < surfN+52 && cheb > H*0.4){
+        _glGravOn=true; player._inPlanetGravity=true; _glCamLook.copy(CAM.focus); _glCamFrom.copy(camera.position); _glCamBlend=0; { const _cd=P.clone().sub(C); if(_cd.lengthSq()>1) _glCamDir.copy(_cd).normalize(); } if(typeof camera!=='undefined'){ camera.getWorldDirection(_glCamFwd); _glCamUp.copy(camera.up); }
+        const ax=Math.abs(r0.x),ay=Math.abs(r0.y),az=Math.abs(r0.z);
+        _glCubeN.copy((ax>=ay&&ax>=az)?new THREE.Vector3(Math.sign(r0.x)||1,0,0):(ay>=az)?new THREE.Vector3(0,Math.sign(r0.y)||1,0):new THREE.Vector3(0,0,Math.sign(r0.z)||1));
+        _glGVel.set(0,0,0); gridSheetsBlast(P.x,P.y,P.z,7,60);
+        for(const m of [player._shadowMesh,player._lineIndicator,player._arrowIndicator]) if(m&&m.material) m.material.opacity=0;
+      } else return;
+    }
+    if(_glCubeN.lengthSq()<0.5) _glCubeN.set(0,1,0);
+    let N=_glCubeN.clone();
+    let r=P.clone().sub(C); let nC=r.dot(N); let tang=r.clone().addScaledVector(N,-nC);
+    const AX=[new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1)];
+    const grounded = nC <= surfN+2; player._glGrounded=grounded;
+    if(grounded){
+      // EDGE WRAP: walked past a face edge -> step onto the adjacent face (walking only)
+      let wrapA=null,wrapS=1,over=0;
+      for(const a of AX){ if(Math.abs(a.dot(N))>0.5) continue; const c=tang.dot(a),o=Math.abs(c)-H; if(o>over){ over=o; wrapA=a; wrapS=Math.sign(c)||1; } }
+      if(wrapA && over>2){ N=wrapA.clone().multiplyScalar(wrapS); _glCubeN.copy(N); r=P.clone().sub(C); nC=r.dot(N); tang=r.clone().addScaledVector(N,-nC); }
+      // clamp in-plane to the face (ride the edge, do not fly off)
+      for(const a of AX){ if(Math.abs(a.dot(N))>0.5) continue; const c=tang.dot(a),cc=Math.max(-H,Math.min(H,c)); if(cc!==c) tang.addScaledVector(a,cc-c); }
+    } else {
+      // AIRBORNE: bind to the NEAREST face so a jump arcs over the edge and lands on the next plane (no teleport slam)
+      const aX=Math.abs(r.x),aY=Math.abs(r.y),aZ=Math.abs(r.z);
+      const Ng=(aX>=aY&&aX>=aZ)?new THREE.Vector3(Math.sign(r.x)||1,0,0):(aY>=aZ)?new THREE.Vector3(0,Math.sign(r.y)||1,0):new THREE.Vector3(0,0,Math.sign(r.z)||1);
+      N=Ng; _glCubeN.copy(Ng); nC=r.dot(N); tang=r.clone().addScaledVector(N,-nC);
+    }
+    // input -> camera-relative direction on the face plane
+    let rx=moveIn.x, ry=moveIn.y;
+    if(!IS_TOUCH){ if(keys['KeyD']||keys['ArrowRight'])rx+=1; if(keys['KeyA']||keys['ArrowLeft'])rx-=1; if(keys['KeyW']||keys['ArrowUp'])ry-=1; if(keys['KeyS']||keys['ArrowDown'])ry+=1; }
+    rx=Math.max(-1,Math.min(1,rx)); ry=Math.max(-1,Math.min(1,ry));
+    const inMag=Math.hypot(rx,ry); let tanDir=null;
+    if(inMag>0.05){
+      const cUp=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,1);   // camera "up" = top of screen
+      const cr=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0);
+      let pf=cUp.addScaledVector(N,-cUp.dot(N)); if(pf.lengthSq()<1e-5){ pf.copy(_glLastTN); pf.addScaledVector(N,-pf.dot(N)); } pf.normalize();
+      let prr=cr.addScaledVector(N,-cr.dot(N)); if(prr.lengthSq()<1e-5) prr.crossVectors(N,pf); prr.normalize();
+      tanDir=pf.clone().multiplyScalar(-ry).addScaledVector(prr,rx); if(tanDir.lengthSq()>1e-4){ tanDir.normalize(); _glLastTN.copy(pf); } else tanDir=null;
+    }
+    const ACC=950, MAXS=210, GRAV=720;
+    if(grounded){
+      if(tanDir) _glGVel.addScaledVector(tanDir, ACC*Math.min(1,inMag)*dt);
+      _glGVel.addScaledVector(N,-_glGVel.dot(N));
+      if(!tanDir) _glGVel.multiplyScalar(0.80);
+      if(_glGVel.length()>MAXS) _glGVel.setLength(MAXS);
+      tang.addScaledVector(_glGVel,dt);                 // move in-plane (overshoot triggers wrap next frame)
+      P.copy(C).add(tang).addScaledVector(N,surfN);
+      player._galSpeed=_glGVel.length();
+      player._jetCool=Math.max(0,(player._jetCool||0)-dt); if(player._jetCool<=0) player.boostFuel=Math.min(player.boostMax,player.boostFuel+26*dt);   // recharge only after a short delay
+      if(tanDir){ player._glStepT=(player._glStepT||0)-dt; if(player._glStepT<=0){ gridSheetsBlast(P.x,P.y,P.z,3,40); player._glStepT=0.3; } }
+      if(player._jumpTapped){ _glGVel.addScaledVector(N,275); player._jumpTapped=false; P.addScaledVector(N,4); gridSheetsBlast(P.x,P.y,P.z,8,60); if(typeof Audio!=='undefined')Audio.blip(300,0.4,'sine',0.14,500); }
+      player._jetting=false;   // standing on the cube never jets (aim/shoot only)
+    } else {
+      _glGVel.addScaledVector(N,-GRAV*dt);
+      if(tanDir) _glGVel.addScaledVector(tanDir,320*Math.min(1,inMag)*dt);
+      if(player._jetting && player.boostFuel>0){ _glGVel.y += 940*dt; player.boostFuel=Math.max(0,player.boostFuel-55*dt); player._jetCool=1.0; }   // boost goes straight UP (world +Y); _jetCool blocks instant refuel
+      if(_glGVel.length()>920) _glGVel.setLength(920);
+      P.addScaledVector(_glGVel,dt); player._galSpeed=0;
+      const r2=P.clone().sub(C), nC2=r2.dot(N); const t2=r2.clone().addScaledVector(N,-nC2);
+      let inExt=true; for(const a of AX){ if(Math.abs(a.dot(N))>0.5) continue; if(Math.abs(t2.dot(a))>H+1){ inExt=false; break; } }
+      if(nC2<=surfN && inExt){ P.copy(C).add(t2).addScaledVector(N,surfN); _glGVel.addScaledVector(N,-_glGVel.dot(N)); }   // land only when actually over the face
+    }
+    if(P.clone().sub(C).length() > H*3.6){ _glExitGrav(P,_glGVel); return; }   // EXIT (jet out; a jump stays on the shape)
+    player.wx=P.x; player.py=P.y; player.wz=P.z; _gN.copy(N);
+    let fwd = tanDir? tanDir.clone() : (_glLastTN.lengthSq()>1e-4?_glLastTN.clone():new THREE.Vector3(1,0,0));
+    fwd.addScaledVector(N,-fwd.dot(N)); if(fwd.lengthSq()<1e-4) fwd.set(1,0,0); fwd.normalize();
+    const xA=new THREE.Vector3().crossVectors(N,fwd).normalize();
+    const tq=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(xA,N,fwd));
+    if(player.model){ player.model.visible=true; player.model.position.set(P.x,P.y,P.z); player.model.quaternion.slerp(tq, grounded?0.22:0.12); }
+    _glFaceCam(C, _glCubeN, H, P, dt);
+    return;
+  }
   const sphereReady = _glMeta && _glMeta.kind==='cube' && _glRoot && _glMorphT>0.6;
   if(!sphereReady){ if(_glGravOn) _glExitGrav(); return; }
   const C=_gsV2.set(_glRoot.position.x,_glRoot.position.y,_glRoot.position.z);
-  const R=72, PR=9, surfD=R+PR;
+  const R=96, PR=9, surfD=R+PR;
   const P=new THREE.Vector3(player.wx,player.py,player.wz);
   let dist=P.distanceTo(C)||1;
   // ── ENTER: jumped into the well, OR somehow ended up inside the shell ──
   if(!_glGravOn){
-    if(dist < surfD+40 && player.py > 18){   // only grab on once you have jumped / jetted up to it (not by walking past)
-      _glGravOn=true; player._inPlanetGravity=true; _glCamLook.copy(CAM.focus); _glCamFrom.copy(camera.position); _glCamBlend=0;   // seed the eased camera handoff
+    if(dist < surfD+52 && player.py > 18){   // only grab on once you have jumped / jetted up to it (not by walking past)
+      _glGravOn=true; player._inPlanetGravity=true; _glCamLook.copy(CAM.focus); _glCamFrom.copy(camera.position); _glCamBlend=0; { const _cd=P.clone().sub(C); if(_cd.lengthSq()>1) _glCamDir.copy(_cd).normalize(); } if(typeof camera!=='undefined'){ camera.getWorldDirection(_glCamFwd); _glCamUp.copy(camera.up); }   // seed the eased camera handoff on the player's side
       // SNAP onto the surface immediately along a safe normal — never let the player reach the dead centre
       let Nl=P.clone().sub(C);
       if(Nl.lengthSq()<9){ Nl.set(player.vx, Math.max(0.1,player.pvy), player.vz); }   // near centre -> use travel dir (favours up)
@@ -15525,19 +15696,19 @@ function updateLabGravity(dt){
   rx=Math.max(-1,Math.min(1,rx)); ry=Math.max(-1,Math.min(1,ry));
   const inMag=Math.hypot(rx,ry); let tan=null;
   if(inMag>0.05){
-    // camera-relative on the surface: forward = camera's view projected onto the ground -> you run straight over the poles
-    const camFwd=new THREE.Vector3(); camera.getWorldDirection(camFwd);
+    // map the stick to the camera's screen axes -> up is always "toward the top of the screen" on every face/pole
+    const camUp=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,1);
     const camRight=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0);
-    let pf=camFwd.addScaledVector(N,-camFwd.dot(N));
-    if(pf.lengthSq()<1e-5){ pf.copy(_glLastTN); pf.addScaledVector(N,-pf.dot(N)); }   // camera staring down the normal -> carry last heading
+    let pf=camUp.addScaledVector(N,-camUp.dot(N));
+    if(pf.lengthSq()<1e-5){ pf.copy(_glLastTN); pf.addScaledVector(N,-pf.dot(N)); }   // camera edge-on -> carry last heading
     pf.normalize();
     let pr=camRight.addScaledVector(N,-camRight.dot(N));
-    if(pr.lengthSq()<1e-5) pr.crossVectors(pf,N);
+    if(pr.lengthSq()<1e-5) pr.crossVectors(N,pf);
     pr.normalize();
-    tan=pf.clone().multiplyScalar(-ry).addScaledVector(pr, rx);             // W/up = into the screen, D/right = screen-right
+    tan=pf.clone().multiplyScalar(-ry).addScaledVector(pr, rx);             // up = toward top of screen
     if(tan.lengthSq()>1e-4){ tan.normalize(); _glLastTN.copy(pf); } else tan=null;
   }
-  const ACC=950, MAXS=210, GRAV=900, FR=0.80;
+  const ACC=950, MAXS=210, GRAV=720, FR=0.80;
   if(grounded){
     if(tan) _glGVel.addScaledVector(tan, ACC*Math.min(1,inMag)*dt);
     _glGVel.addScaledVector(N,-_glGVel.dot(N));               // keep purely tangential
@@ -15546,16 +15717,16 @@ function updateLabGravity(dt){
     P.addScaledVector(_glGVel,dt);
     { const _rd=P.clone().sub(C); if(_rd.lengthSq()>0.25){ P.copy(C).addScaledVector(_rd.normalize(),surfD); } else { P.copy(C).addScaledVector(N,surfD); } }   // glue to surface (centre-safe)
     player._galSpeed=_glGVel.length();
-    player.boostFuel=Math.min(player.boostMax,player.boostFuel+40*dt);
+    player._jetCool=Math.max(0,(player._jetCool||0)-dt); if(player._jetCool<=0) player.boostFuel=Math.min(player.boostMax,player.boostFuel+26*dt);
     if(tan){ player._glStepT=(player._glStepT||0)-dt; if(player._glStepT<=0){ gridSheetsBlast(P.x,P.y,P.z,3,40); player._glStepT=0.3; } }
-    if(player._jumpTapped){ const ch=player._jumpCharge||0; _glGVel.addScaledVector(N,470+ch*340); P.addScaledVector(N,5);
+    if(player._jumpTapped){ _glGVel.addScaledVector(N,275); P.addScaledVector(N,4);
       player._jumpTapped=false; player._jumpCharge=0; gridSheetsBlast(P.x,P.y,P.z,8,60);
       if(typeof Audio!=='undefined') Audio.blip(300,0.4,'sine',0.14,500); }
-    if(player._jetting && player.boostFuel>0){ _glGVel.addScaledVector(N,1200*dt); player.boostFuel=Math.max(0,player.boostFuel-38*dt); P.addScaledVector(N,3); }   // hold jet -> lift off the surface
+    player._jetting=false;   // standing on the surface never jets — holding the stick is aim/shoot. (To leave: hop, then hold while airborne.)
   } else {
     _glGVel.addScaledVector(N,-GRAV*dt);
     if(tan) _glGVel.addScaledVector(tan, 320*Math.min(1,inMag)*dt);
-    if(player._jetting && player.boostFuel>0){ _glGVel.addScaledVector(N,1500*dt); player.boostFuel=Math.max(0,player.boostFuel-38*dt); }
+    if(player._jetting && player.boostFuel>0){ _glGVel.y += 940*dt; player.boostFuel=Math.max(0,player.boostFuel-55*dt); player._jetCool=1.0; }   // boost goes straight UP (world +Y); _jetCool blocks instant refuel
     if(_glGVel.length()>920) _glGVel.setLength(920);
     P.addScaledVector(_glGVel,dt);
     player._galSpeed=0;
@@ -15570,7 +15741,7 @@ function updateLabGravity(dt){
     }
   }
   // ── EXIT: escaped the well ──
-  if(P.distanceTo(C) > R*2.4){ _glExitGrav(P,_glGVel); return; }
+  if(P.distanceTo(C) > R*3.4){ _glExitGrav(P,_glGVel); return; }
   player.wx=P.x; player.py=P.y; player.wz=P.z;
   _gN.copy(P.clone().sub(C).normalize());
   // orientation: up = N, forward = travel (or aim)
@@ -15579,17 +15750,7 @@ function updateLabGravity(dt){
   const xA=new THREE.Vector3().crossVectors(_gN,fwd).normalize();
   const tq=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(xA,_gN,fwd));
   if(player.model){ player.model.visible=true; player.model.position.set(P.x,P.y,P.z); player.model.quaternion.slerp(tq, grounded?0.25:0.12); }
-  // ── PLANET ORBIT CAMERA — sits outside the sphere on the player's side, frames the whole planet (you're never hidden behind it) ──
-  { let side=P.clone().sub(C); side.y*=0.35; if(side.lengthSq()<1) side.set(Math.sin(CAM.yaw),0,Math.cos(CAM.yaw)); side.normalize();
-    const eye=C.clone().addScaledVector(side,R*3.6); eye.y+=R*2.0;
-    if(typeof camera!=='undefined'){
-      const ltx=C.x+(P.x-C.x)*0.22, lty=C.y+R*0.15+(P.y-C.y)*0.22, ltz=C.z+(P.z-C.z)*0.22;
-      _glCamLook.x+=(ltx-_glCamLook.x)*0.12; _glCamLook.y+=(lty-_glCamLook.y)*0.12; _glCamLook.z+=(ltz-_glCamLook.z)*0.12;
-      if(_glCamBlend<1){ _glCamBlend=Math.min(1,_glCamBlend+dt/0.55); const e=_glCamBlend<0.5?2*_glCamBlend*_glCamBlend:1-Math.pow(-2*_glCamBlend+2,2)/2; camera.position.lerpVectors(_glCamFrom,eye,e); }
-      else camera.position.lerp(eye,0.16);
-      camera.lookAt(_glCamLook.x,_glCamLook.y,_glCamLook.z);
-    }
-    CAM.focus.set(C.x,C.y,C.z); CAM.tfocus.set(C.x,C.y,C.z); CAM.trauma=Math.max(0,CAM.trauma-dt*3.2); }
+  _glFaceCam(C, _gN, R, P, dt);
 }
 function updateGridLab(dt){
   // ── always-on debug overlay (fps / spiders / particles / draws) ──
@@ -15634,7 +15795,7 @@ function updateGridLab(dt){
         s.beat=Math.min(1,s.beat+0.02); }
     }
     const ef=_glMorphT<0.5?2*_glMorphT*_glMorphT:1-Math.pow(-2*_glMorphT+2,2)/2;
-    if(_glRoot && _glMeta) _glRoot.position.y = _glMeta.cy + (_GL_FLOAT_Y-_glMeta.cy)*ef;   // float height always reflects the morph state
+    if(_glRoot && _glMeta) _glRoot.position.y = _GL_CUBE_Y + (_GL_SPHERE_Y-_GL_CUBE_Y)*ef;   // float height reflects the morph state (cube low end, sphere high end)
   }
   for(const s of _glSheets) s.update(dt);
   // ── Dimensional warp-in: spring-overshoot scale from a point + node wiggle that grows with size ──
@@ -15646,13 +15807,23 @@ function updateGridLab(dt){
     if(wk>0.02){ for(const s of _glSheets){ for(let n=0;n<s.n;n++){ s.vy[n]+=Math.sin(n*2.3+_glWarpT*9)*wk; } s.beat=Math.min(1,s.beat+0.03); } }
     if(Math.abs(_glWarpV)<0.002 && Math.abs(1-_glWarpS)<0.008){ _glRoot.scale.setScalar(1); _glWarp=false; for(const s of _glSheets) s.shock(0,0,3); if(typeof addTrauma==='function')addTrauma(0.03); }
   }
-  if(_glMeta&&_glMeta.kind==='cube'&&_glRoot&&_glMorphT>0.6&&GS.bullets){   // bullets curve around the sphere (tactical wrap)
-    const Cx=_glRoot.position.x,Cy=_glRoot.position.y,Cz=_glRoot.position.z,R=72,SOI=R*2.8;
-    for(const b of GS.bullets){ if(!b||b.life<=0||b.wx===undefined)continue; const by=(b.y!==undefined?b.y:9);
-      const dx=b.wx-Cx,dy=by-Cy,dz=b.wz-Cz,d=Math.hypot(dx,dy,dz);
-      if(d<SOI && d>R*0.5){ const inv=1/(d||1), f=1700*(1-d/SOI)*dt; b.vx-=dx*inv*f; b.vz-=dz*inv*f; if(b.vy!==undefined) b.vy-=dy*inv*f; }
-    }
+  if(_glMeta&&_glMeta.kind==='cube'&&_glRoot&&GS.bullets){   // subtle gravitational influence — projectiles curve a little near the shape, then fly on (no capture)
+    const Cx=_glRoot.position.x,Cy=_glRoot.position.y,Cz=_glRoot.position.z;
+    const isSphere=_glMorphT>0.6, RAD=isSphere?96:72, SOI=RAD*3.2, STR=isSphere?560:320;   // sphere curves more; the angular cube less
+    const pull=(b)=>{
+      if(!b||b.wx===undefined||b.dead||(b.life!==undefined&&b.life<=0)) return;
+      const by=(b.y!==undefined?b.y:9); if(by<40) return;                       // leave flat-arena shots alone
+      const dx=Cx-b.wx, dy=Cy-by, dz=Cz-b.wz, d=Math.hypot(dx,dy,dz);
+      if(d>SOI || d<RAD*0.4) return;
+      const inv=1/(d||1), f=STR*(1-d/SOI)*dt;                                   // gentle pull toward centre, stronger up close
+      if(b.vy===undefined)b.vy=0;
+      b.vx+=dx*inv*f; b.vy+=dy*inv*f; b.vz+=dz*inv*f;
+    };
+    for(const b of GS.bullets) pull(b);
+    if(GS.missiles) for(const m of GS.missiles) pull(m);
+    if(GS.dropBombs) for(const b of GS.dropBombs) pull(b);
   }
+  // (sphere bullet-curve removed — shots fire straight off the sphere along the aim)
   updateLabGravity(dt);
   _glGhostOccluders();
   // ── Colliders (disabled mid-warp while the shape is still materialising) ──
