@@ -12294,9 +12294,17 @@ function loop(ts){ requestAnimationFrame(loop);
       }
       if(frame%4===0) for(const e of GS.enemies){ grid.push(e.wx,e.wz,-0.03,32); }
       if(frame%120===0) grid.push(rand(-HALF_W*0.5,HALF_W*0.5),rand(-HALF_D*0.5,HALF_D*0.5),rand(-0.4,0.4),55);
+      const _mpPuppet=(typeof MP!=='undefined' && MP.active && !MP.isHost);
       for(const e of GS.enemies){
         if(e._ro){ _skyEnemyRingFall(e,dt); continue; }
         if(e._burn){ _colEnemyBurn(e,dt); continue; }
+        if(_mpPuppet){   // host-authoritative: client enemies are puppets — animate but track host position, drop local AI drift
+          if(e._netTX!==undefined){ e.wx+=(e._netTX-e.wx)*Math.min(1,dt*9); e.wz+=(e._netTZ-e.wz)*Math.min(1,dt*9); }
+          const _hx=e.wx,_hz=e.wz;
+          try{ e.update(player,dt); }catch(_){}
+          e.wx=_hx; e.wz=_hz; if(e.mesh){ e.mesh.position.x=_hx; e.mesh.position.z=_hz; }
+          continue;
+        }
         e.update(player,dt);
         // ── Ground enemies can't stand on the void — if they wander over a gap, they fall ──
         if(window._arenaVoid && !e._ro && !e._burn && !e._climbing && !e.isBoss
@@ -16719,6 +16727,7 @@ function _cityMakeTestUI(){
   wrap.appendChild(stat); wrap.appendChild(row); document.body.appendChild(wrap);
 }
 window._cityAddRandom=function(n){
+  if(typeof MP!=='undefined'&&MP.active&&!MP.isHost){ try{mpSend('event',{event:'city_addrandom',data:{n:n||1}});}catch(e){} return; }
   for(let k=0;k<(n||1);k++){
     const cell=30, wc=3+Math.floor(Math.random()*3), dc=3+Math.floor(Math.random()*3), hc=8+Math.floor(Math.random()*16);
     const hw=wc*cell/2, hd=dc*cell/2, h=hc*cell, spread=260+_cityBoxes.length*48;
@@ -16728,11 +16737,26 @@ window._cityAddRandom=function(n){
       for(const qb of _cityBoxes){ if(Math.abs(bx-qb.x)<hw+qb.hw+150 && Math.abs(bz-qb.z)<hd+qb.hd+150){ ok=false; break; } } }
     if(ok) _cityAddBuilding(bx,bz,hw,hd,h,'neon');
   }
+  _cityBroadcastLayout();
 };
-window._cityRebuild=function(){ if(typeof buildCityTest==='function') buildCityTest(); };
+window._cityRebuild=function(){ if(typeof MP!=='undefined'&&MP.active&&!MP.isHost){ try{mpSend('event',{event:'city_rebuild'});}catch(e){} return; } if(typeof buildCityTest==='function') buildCityTest(); };
+function _cityBroadcastLayout(){
+  if(typeof MP!=='undefined' && MP.active && MP.isHost){
+    try{ mpSend('event',{event:'city_layout',data:{boxes:_cityBoxes.map(b=>({x:Math.round(b.x),z:Math.round(b.z),hw:b.hw,hd:b.hd,top:b.top}))}}); }catch(e){}
+  }
+}
+window._cityBuildFromData=function(boxes){   // client mirrors the host's exact layout -> identical maps
+  if(!boxes||!boxes.length) return;
+  _disposeCityTest();
+  _glGravOn=false; _cgBox=null; if(player) player._inPlanetGravity=false;
+  for(const b of boxes){ _cityAddBuilding(b.x,b.z,b.hw,b.hd,b.top,'neon'); }
+  _cityAddProps();
+  if(typeof _cityMakeTestUI==='function') _cityMakeTestUI();
+};
 function buildCityTest(){
   _disposeCityTest();
   _glGravOn=false; _cgBox=null; if(player) player._inPlanetGravity=false;
+  if(typeof MP!=='undefined' && MP.active && !MP.isHost){ try{ mpSend('event',{event:'city_req'}); }catch(e){} if(typeof _cityMakeTestUI==='function') _cityMakeTestUI(); return; }   // client: request & mirror the host layout
   const cell=30, pal='neon', mode=(typeof window!=='undefined' && window._cityMode)||'random';
   if(mode==='grid'){
     // MAP-STYLE LAYOUT: a street grid of varied buildings. Footprint-array driven, so OSM/hand-authored data can
@@ -16761,6 +16785,7 @@ function buildCityTest(){
   }
   _cityAddProps();
   if(typeof _cityMakeTestUI==='function') _cityMakeTestUI();
+  _cityBroadcastLayout();
 }
 function _disposeCityTest(){
   if(typeof _cityRemoveTestUI==='function') _cityRemoveTestUI();
@@ -17319,8 +17344,8 @@ function _mpSyncEnemies(list){
   while(GS.enemies.length>list.length){ const e=GS.enemies.pop(); if(e&&e.remove)e.remove(); }   // drop extras the host no longer has
   for(let i=0;i<list.length;i++){
     const ed=list[i]; let e=GS.enemies[i];
-    if(!e){ try{ const Cls=_MP_ETYPES[ed.t]||Diamond; e=new Cls(ed.wx,ed.wz,1); if(e.addToScene)e.addToScene(); GS.enemies[i]=e; }catch(_){ continue; } }  // create missing
-    e.wx=ed.wx; e.wz=ed.wz; if(ed.hp!=null)e.hp=ed.hp;
+    if(!e){ try{ const Cls=_MP_ETYPES[ed.t]||Diamond; e=new Cls(ed.wx,ed.wz,1); if(e.addToScene)e.addToScene(); e.wx=ed.wx; e.wz=ed.wz; GS.enemies[i]=e; }catch(_){ continue; } }  // create missing
+    e._netTX=ed.wx; e._netTZ=ed.wz; if(ed.hp!=null)e.hp=ed.hp;   // interp target (smoothed in the loop) — do NOT snap, or local AI fights it -> jitter
     if(ed.alive===false&&e.alive!==false){ e.alive=false; if(e.remove)e.remove(); GS.enemies.splice(i,1); i--; }
   }
 }
@@ -17566,6 +17591,18 @@ function mpHandleRemoteEvent(msg){
       break;
     case 'player_hit':
       if(d.target===MP.myId) mpTakeDamage(d.dmg||1, msg.id);
+      break;
+    case 'city_req':
+      if(MP.isHost) _cityBroadcastLayout();
+      break;
+    case 'city_layout':
+      if(!MP.isHost && GS.zone===-16 && d.boxes && window._cityBuildFromData) window._cityBuildFromData(d.boxes);
+      break;
+    case 'city_addrandom':
+      if(MP.isHost && GS.zone===-16 && window._cityAddRandom) window._cityAddRandom(d.n||1);
+      break;
+    case 'city_rebuild':
+      if(MP.isHost && GS.zone===-16 && typeof buildCityTest==='function') buildCityTest();
       break;
     case 'spawn_req':
       if(MP.isHost && GS.state==='playing'){
