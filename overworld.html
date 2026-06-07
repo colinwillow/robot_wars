@@ -185,6 +185,24 @@ const gridMat = new THREE.ShaderMaterial({ uniforms:gridUniforms, transparent:tr
 const gridPlane = new THREE.Mesh(new THREE.PlaneGeometry(6000,6000), gridMat);
 gridPlane.rotation.x = -Math.PI/2; gridPlane.position.y = 0.02; scene.add(gridPlane);
 
+// reactive DEFORMING grid patch — follows the player, dimples + ripples, rides above roads
+const deformGeo = new THREE.PlaneGeometry(720,720,144,144); deformGeo.rotateX(-Math.PI/2);
+const deformMat = new THREE.ShaderMaterial({ uniforms:gridUniforms, transparent:true, depthWrite:false,
+  vertexShader:`uniform float uTime; uniform vec3 uPlayer; varying vec2 vWxz;
+    void main(){ vec4 wp=modelMatrix*vec4(position,1.0); vWxz=wp.xz;
+      float d=distance(wp.xz,uPlayer.xz);
+      float well=10.0*exp(-d*d/(2.0*52.0*52.0));
+      float rip=2.6*sin(d*0.09 - uTime*3.0)*exp(-d*d/(2.0*165.0*165.0));
+      wp.y += (-well + rip);
+      gl_Position=projectionMatrix*viewMatrix*wp; }`,
+  fragmentShader:`uniform vec3 uPlayer; varying vec2 vWxz;
+    void main(){ float sp=10.0; vec2 q=vWxz/sp; vec2 gg=abs(fract(q-0.5)-0.5)/fwidth(q);
+      float grid=1.0-clamp(min(gg.x,gg.y),0.0,1.0);
+      float d=distance(vWxz,uPlayer.xz); float near=smoothstep(340.0,0.0,d);
+      vec3 col=vec3(0.14,0.82,1.0)*grid*near;
+      gl_FragColor=vec4(col, grid*near*0.92); }` });
+const deform = new THREE.Mesh(deformGeo, deformMat); deform.position.y=0.5; scene.add(deform);
+
 // holder for generated world (cleared each scan)
 let world = new THREE.Group(); scene.add(world);
 
@@ -512,7 +530,7 @@ function resolveWalls(pos, feet){
         if(m===pL)pos.x=c.minX-R; else if(m===pR)pos.x=c.maxX+R; else if(m===pD)pos.z=c.minZ-R; else pos.z=c.maxZ+R; } }
   }
 }
-function jump(){ if(grounded){ pvy=64; grounded=false; } }
+function jump(){ if(grounded){ pvy=88; grounded=false; } }
 function collectPickups(){
   for(const pk of pickups){ if(pk.got) continue;
     const dx=pk.mesh.position.x-ball.position.x, dy=pk.mesh.position.y-ball.position.y, dz=pk.mesh.position.z-ball.position.z;
@@ -603,6 +621,7 @@ function tick(now){
   if(mode==='walk') walkMove(dt); else fly(dt); controls.update();
   gridUniforms.uTime.value = now*0.001;
   gridUniforms.uPlayer.value.copy(mode==='walk'&&ball ? ball.position : controls.target);
+  { const gp=(mode==='walk'&&ball)?ball.position:controls.target; deform.position.x=Math.round(gp.x/10)*10; deform.position.z=Math.round(gp.z/10)*10; }
   if(pickups.length){ const tt=now*0.001; for(const pk of pickups){ if(pk.got)continue; pk.mesh.rotation.y+=0.03; pk.mesh.position.y=pk.base+Math.sin(tt*2+pk.ph)*0.8; } }
   renderer.render(scene,camera);
   requestAnimationFrame(tick);
