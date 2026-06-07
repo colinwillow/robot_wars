@@ -67,7 +67,9 @@ button:disabled{opacity:.4;cursor:default}
   #scanbtn{position:fixed;left:14px;top:14px;z-index:16;display:none;width:auto;padding:9px 14px}
   #stick{position:fixed;left:22px;bottom:26px;width:120px;height:120px;border-radius:50%;background:#0a1a2acc;border:1px solid #19e6ff44;z-index:15;display:none;touch-action:none}
   #knob{position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:50%;background:#19e6ff33;border:1px solid #19e6ffaa;box-shadow:0 0 14px #19e6ff66;pointer-events:none}
-  #wkhint{position:fixed;right:14px;bottom:30px;z-index:15;display:none;max-width:150px;font-size:10px;color:#8fb6cf;letter-spacing:1px;text-align:right;line-height:1.6}
+  #wkhint{position:fixed;right:14px;bottom:124px;z-index:15;display:none;max-width:150px;font-size:10px;color:#8fb6cf;letter-spacing:1px;text-align:right;line-height:1.6}
+  #jumpbtn{position:fixed;right:22px;bottom:30px;z-index:15;display:none;width:84px;height:84px;border-radius:50%;background:#101f2ecc;border:1px solid #19e6ff66;color:#bfefff;font-size:13px;letter-spacing:2px}
+  #pickhud{position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:15;display:none;font-size:13px;letter-spacing:2px;color:#ffce4a;background:#1a1405cc;border:1px solid #ffce4a44;border-radius:8px;padding:7px 14px}
 </style>
 </head>
 <body>
@@ -112,7 +114,9 @@ button:disabled{opacity:.4;cursor:default}
 <div id="err"><b>SCAN FAILED</b><small id="errtxt"></small></div>
 <button id="scanbtn">&#9664; exit walk</button>
 <div id="stick"><div id="knob"></div></div>
-<div id="wkhint">drag screen to look &middot; joystick to move &middot; WASD on desktop</div>
+<div id="wkhint">drag to look &middot; joystick to move &middot; jump button &middot; grab the gems</div>
+<button id="jumpbtn">JUMP</button>
+<div id="pickhud">GEMS 0 / 0</div>
 
 <script>
   window.addEventListener('error',e=>{ const x=document.getElementById('err'); if(x){ x.classList.add('on'); document.getElementById('errtxt').textContent=(e.message||'error')+'  ['+((e.filename||'').split('/').pop())+':'+e.lineno+']'; } });
@@ -161,8 +165,25 @@ const ground = new THREE.Mesh(
   new THREE.PlaneGeometry(8000,8000),
   new THREE.MeshStandardMaterial({ color:0x070b13, roughness:1, metalness:0 }));
 ground.rotation.x = -Math.PI/2; ground.position.y = -0.5; scene.add(ground);
-const grid = new THREE.GridHelper(4000, 80, 0x2a5a82, 0x163a56);
-grid.position.y = -0.4; scene.add(grid);
+const gridUniforms = { uTime:{value:0}, uPlayer:{value:new THREE.Vector3(0,0,0)} };
+const gridMat = new THREE.ShaderMaterial({ uniforms:gridUniforms, transparent:true, depthWrite:false,
+  vertexShader:`varying vec2 vW; void main(){ vec4 wp=modelMatrix*vec4(position,1.0); vW=wp.xz; gl_Position=projectionMatrix*viewMatrix*wp; }`,
+  fragmentShader:`varying vec2 vW; uniform float uTime; uniform vec3 uPlayer;
+    void main(){
+      float sp=10.0; vec2 q=vW/sp;
+      vec2 gg=abs(fract(q-0.5)-0.5)/fwidth(q);
+      float grid=1.0-clamp(min(gg.x,gg.y),0.0,1.0);
+      float d=distance(vW,uPlayer.xz);
+      float near=smoothstep(180.0,0.0,d);
+      float ripple=sin(d*0.16 - uTime*3.0)*0.5+0.5;
+      vec3 col=vec3(0.0,0.30,0.48)*grid;
+      col+=vec3(0.12,0.85,1.0)*grid*ripple*near*1.7;
+      col+=vec3(0.0,0.45,0.8)*near*0.05;
+      float a=max(grid*0.55, near*0.10);
+      gl_FragColor=vec4(col,a);
+    }` });
+const gridPlane = new THREE.Mesh(new THREE.PlaneGeometry(6000,6000), gridMat);
+gridPlane.rotation.x = -Math.PI/2; gridPlane.position.y = 0.02; scene.add(gridPlane);
 
 // holder for generated world (cleared each scan)
 let world = new THREE.Group(); scene.add(world);
@@ -195,6 +216,7 @@ function buildWorld(elements, cLat, cLon){
   world.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); });
   world = new THREE.Group(); scene.add(world);
   colliders.length=0; cHash={};
+  pickGroup.clear(); pickups=[]; collected=0;
 
   const bGeos=[], bEdges=[], roadGeos=[], parkGeos=[], waterGeos=[], treePts=[];
   let nB=0,nR=0;
@@ -213,7 +235,7 @@ function buildWorld(elements, cLat, cLon){
       if(g){ bGeos.push(g); const e=new THREE.EdgesGeometry(g,28); bEdges.push(e); nB++;
         let mnx=1e9,mxx=-1e9,mnz=1e9,mxz=-1e9;
         for(const q of pts){ if(q.x<mnx)mnx=q.x; if(q.x>mxx)mxx=q.x; if(q.z<mnz)mnz=q.z; if(q.z>mxz)mxz=q.z; }
-        colliders.push({minX:mnx,maxX:mxx,minZ:mnz,maxZ:mxz}); }
+        colliders.push({minX:mnx,maxX:mxx,minZ:mnz,maxZ:mxz,top:Math.max(3,h)}); }
     }
     else if(t.highway && ROADW[t.highway]!==undefined){
       const g = ribbon(pts, ROADW[t.highway]); if(g){ roadGeos.push(g); nR++; }
@@ -243,7 +265,7 @@ function buildWorld(elements, cLat, cLon){
   const waterMesh = add(waterGeos, new THREE.MeshStandardMaterial({color:0x081f3e,emissive:0x103a6e,emissiveIntensity:.5,roughness:.3,metalness:.4}));
   const roadMesh  = add(roadGeos,  new THREE.MeshStandardMaterial({color:0x1a2233,emissive:0x0a1322,emissiveIntensity:.6,roughness:.9}));
 
-  const bMesh = add(bGeos, new THREE.MeshStandardMaterial({color:0x14233d,emissive:0x0a1830,emissiveIntensity:.45,roughness:.55,metalness:.25,flatShading:true}));
+  const bMesh = add(bGeos, makeBuildingMat());
   let eMesh=null;
   if(bEdges.length){ const em=mergeGeometries(bEdges,false);
     if(em) eMesh = new THREE.LineSegments(em, new THREE.LineBasicMaterial({color:0x19e6ff,transparent:true,opacity:.55})); if(eMesh) world.add(eMesh); }
@@ -265,6 +287,7 @@ function buildWorld(elements, cLat, cLon){
 
   $('sB').textContent=nB; $('sR').textContent=nR; $('sT').textContent=nT;
   $('walkbtn').disabled=false;
+  scatterPickups();
 
   // frame the camera to the data
   const span = Math.max(120, currentRadius*1.4);
@@ -409,6 +432,10 @@ function fly(dt){
 let mode='scan'; let ball=null, ballLight=null;
 const colliders=[]; let cHash={}; const CELL=60;
 const stick={active:false,dx:0,dy:0,id:null};
+let pvy=0, grounded=true; let pickups=[]; let collected=0;
+const pickGroup=new THREE.Group(); scene.add(pickGroup);
+const pickGeo=new THREE.OctahedronGeometry(2,0);
+const pickMat=new THREE.MeshStandardMaterial({color:0x3a2a00,emissive:0xffce4a,emissiveIntensity:1.6,roughness:.3,metalness:.3});
 
 function createBall(){
   ball=new THREE.Mesh(new THREE.SphereGeometry(2.6,24,18),
@@ -430,6 +457,9 @@ function resolveCollision(pos){
   }
 }
 function walkMove(dt){
+  const R=2.6, CR=3.6;
+  const before=ball.position.clone();
+  // horizontal input (camera-relative)
   let ix=0,iy=0;
   if(keys['KeyW'])iy+=1; if(keys['KeyS'])iy-=1; if(keys['KeyD'])ix+=1; if(keys['KeyA'])ix-=1;
   if(stick.active){ ix+=stick.dx; iy+=stick.dy; }
@@ -440,13 +470,81 @@ function walkMove(dt){
       const mv=new THREE.Vector3().addScaledVector(f,iy).addScaledVector(r,ix);
       if(mv.lengthSq()>1)mv.normalize();
       mv.multiplyScalar(46*dt);
-      const before=ball.position.clone();
-      const np=ball.position.clone().add(mv); np.y=2.6; resolveCollision(np);
-      const d=np.clone().sub(before);
-      ball.position.copy(np); ballLight.position.set(np.x,14,np.z);
-      camera.position.add(d); controls.target.add(d);   // translate cam WITH the orb -> true follow
+      ball.position.x+=mv.x; ball.position.z+=mv.z;
     }
   }
+  resolveWalls(ball.position, ball.position.y-R);   // bonk into walls at current foot level
+  // gravity / vertical
+  const feet0 = ball.position.y - R;
+  pvy -= 150*dt;
+  ball.position.y += pvy*dt;
+  let feet1 = ball.position.y - R;
+  grounded=false;
+  // roof landing (swept: was on/above roof, now at/below)
+  const cx=Math.floor(ball.position.x/CELL), cz=Math.floor(ball.position.z/CELL), seen=new Set();
+  for(let gx=cx-1;gx<=cx+1;gx++)for(let gz=cz-1;gz<=cz+1;gz++){
+    const b=cHash[gx+','+gz]; if(!b)continue;
+    for(const i of b){ if(seen.has(i))continue; seen.add(i); const c=colliders[i];
+      const qx=Math.max(c.minX,Math.min(ball.position.x,c.maxX)), qz=Math.max(c.minZ,Math.min(ball.position.z,c.maxZ));
+      const dx=ball.position.x-qx, dz=ball.position.z-qz;
+      if(dx*dx+dz*dz > CR*CR) continue;
+      if(pvy<=0 && feet0>=c.top-0.6 && feet1<=c.top){ ball.position.y=c.top+R; pvy=0; grounded=true; feet1=c.top; }
+    }
+  }
+  if(ball.position.y<=R){ ball.position.y=R; pvy=0; grounded=true; }   // ground floor
+  // camera follows the full 3D delta
+  const d=ball.position.clone().sub(before);
+  camera.position.add(d); controls.target.add(d);
+  ballLight.position.set(ball.position.x,14,ball.position.z);
+  collectPickups();
+}
+function resolveWalls(pos, feet){
+  const R=3.6, cx=Math.floor(pos.x/CELL), cz=Math.floor(pos.z/CELL), seen=new Set();
+  for(let gx=cx-1;gx<=cx+1;gx++)for(let gz=cz-1;gz<=cz+1;gz++){
+    const b=cHash[gx+','+gz]; if(!b)continue;
+    for(const i of b){ if(seen.has(i))continue; seen.add(i); const c=colliders[i];
+      if(feet >= c.top-0.1) continue;            // standing on/above this roof -> not a wall
+      const qx=Math.max(c.minX,Math.min(pos.x,c.maxX)), qz=Math.max(c.minZ,Math.min(pos.z,c.maxZ));
+      const dx=pos.x-qx, dz=pos.z-qz, d2=dx*dx+dz*dz;
+      if(d2>R*R) continue;
+      if(d2>1e-5){ const dd=Math.sqrt(d2), pp=R-dd; pos.x+=dx/dd*pp; pos.z+=dz/dd*pp; }
+      else { const pL=pos.x-c.minX,pR=c.maxX-pos.x,pD=pos.z-c.minZ,pU=c.maxZ-pos.z,m=Math.min(pL,pR,pD,pU);
+        if(m===pL)pos.x=c.minX-R; else if(m===pR)pos.x=c.maxX+R; else if(m===pD)pos.z=c.minZ-R; else pos.z=c.maxZ+R; } }
+  }
+}
+function jump(){ if(grounded){ pvy=64; grounded=false; } }
+function collectPickups(){
+  for(const pk of pickups){ if(pk.got) continue;
+    const dx=pk.mesh.position.x-ball.position.x, dy=pk.mesh.position.y-ball.position.y, dz=pk.mesh.position.z-ball.position.z;
+    if(dx*dx+dy*dy+dz*dz < 49){ pk.got=true; pk.mesh.visible=false; collected++; updatePickHud(); }
+  }
+}
+function updatePickHud(){ const el=$('pickhud'); if(el) el.textContent='GEMS '+collected+' / '+pickups.length; }
+function insideBuilding(x,z){
+  const c=cHash[Math.floor(x/CELL)+','+Math.floor(z/CELL)]; if(!c) return false;
+  for(const i of c){ const b=colliders[i]; if(x>=b.minX-4&&x<=b.maxX+4&&z>=b.minZ-4&&z<=b.maxZ+4) return true; }
+  return false;
+}
+function scatterPickups(){
+  pickGroup.clear(); pickups=[]; collected=0;
+  const pr=Math.max(80, currentRadius*0.9);
+  for(let k=0;k<24;k++){
+    let px=0,pz=0,ok=false;
+    for(let t=0;t<8 && !ok;t++){ const a=Math.random()*6.2832, rr=Math.sqrt(Math.random())*pr;
+      px=Math.cos(a)*rr; pz=Math.sin(a)*rr; ok=!insideBuilding(px,pz); }
+    if(!ok) continue;
+    const m=new THREE.Mesh(pickGeo, pickMat); m.position.set(px,7,pz); pickGroup.add(m);
+    pickups.push({mesh:m,got:false,base:7,ph:Math.random()*6.2832});
+  }
+  updatePickHud();
+}
+function makeBuildingMat(){
+  const m=new THREE.MeshStandardMaterial({color:0x14233d,emissive:0x0a1830,emissiveIntensity:.45,roughness:.55,metalness:.25,flatShading:true});
+  m.onBeforeCompile=(sh)=>{
+    sh.vertexShader='varying vec3 vWP;\n'+sh.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\n vWP=(modelMatrix*vec4(transformed,1.0)).xyz;');
+    sh.fragmentShader='varying vec3 vWP;\n'+sh.fragmentShader.replace('#include <dithering_fragment>','#include <dithering_fragment>\n {float sp=7.0; vec3 w=vWP/sp; vec3 gr=abs(fract(w-0.5)-0.5)/fwidth(w); float ln=min(min(gr.x,gr.y),gr.z); float g=1.0-clamp(ln,0.0,1.0); gl_FragColor.rgb+=vec3(0.0,0.62,0.82)*g*0.5;}');
+  };
+  return m;
 }
 function setMode(m){
   mode=m;
@@ -454,19 +552,26 @@ function setMode(m){
   if(m==='walk'){
     if(!ball)createBall();
     ball.position.set(controls.target.x,2.6,controls.target.z); resolveCollision(ball.position);
+    pvy=0; grounded=true;
     ball.visible=true; ballLight.visible=true; ballLight.position.set(ball.position.x,14,ball.position.z);
     controls.minDistance=10; controls.maxDistance=140;
     camera.position.set(ball.position.x,ball.position.y+24,ball.position.z+36);
     controls.target.copy(ball.position); controls.update();
     show('ui','none'); show('stats','none'); show('scanbtn','block'); show('stick','block'); show('wkhint','block');
+    show('jumpbtn','block'); show('pickhud','block'); updatePickHud();
   } else {
     if(ball){ ball.visible=false; ballLight.visible=false; }
     controls.minDistance=40; controls.maxDistance=2400;
     show('ui',''); show('stats',''); show('scanbtn','none'); show('stick','none'); show('wkhint','none');
+    show('jumpbtn','none'); show('pickhud','none');
   }
 }
 $('walkbtn').onclick=()=>setMode('walk');
 $('scanbtn').onclick=()=>setMode('scan');
+{ const jb=$('jumpbtn');
+  jb.addEventListener('touchstart',e=>{ jump(); e.preventDefault(); e.stopPropagation(); },{passive:false});
+  jb.addEventListener('mousedown',e=>{ jump(); e.preventDefault(); }); }
+addEventListener('keydown',e=>{ if(e.code==='Space'&&mode==='walk'){ jump(); e.preventDefault(); } });
 
 (function(){ const el=$('stick'), kn=$('knob');
   function set(px,py){ const r=el.getBoundingClientRect(), cx=r.left+r.width/2, cy=r.top+r.height/2;
@@ -496,6 +601,9 @@ function tick(now){
     if(reveal.t>=1) reveal.on=false;
   }
   if(mode==='walk') walkMove(dt); else fly(dt); controls.update();
+  gridUniforms.uTime.value = now*0.001;
+  gridUniforms.uPlayer.value.copy(mode==='walk'&&ball ? ball.position : controls.target);
+  if(pickups.length){ const tt=now*0.001; for(const pk of pickups){ if(pk.got)continue; pk.mesh.rotation.y+=0.03; pk.mesh.position.y=pk.base+Math.sin(tt*2+pk.ph)*0.8; } }
   renderer.render(scene,camera);
   requestAnimationFrame(tick);
 }
