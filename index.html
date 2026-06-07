@@ -985,8 +985,8 @@ const TIME={scale:1,target:1,freeze:0,hold:0};
 function _timeFXoff(){ return (typeof GS!=='undefined') && (GS.zone===-11 || GS.odActive>0); }  // no slow-mo in asset room or overdrive
 function hitStop(f){ if(_timeFXoff()) return; TIME.freeze=Math.max(TIME.freeze,f); }
 function slowmo(s,h){ if(_timeFXoff()) return; TIME.target=s; TIME.hold=h; }
-window._spawnTestSpiders=(n=10)=>{ const R=(typeof ARENA_R!=='undefined'?ARENA_R:240); const walls=(typeof _arenaObstacles!=='undefined')?_arenaObstacles.filter(o=>o&&(o.h||0)>=14&&(o.t===undefined||o.t>=0.5)):[]; for(let k=0;k<n;k++){ try{ const e=new Crawler(0,0,1); e.addToScene(); GS.enemies.push(e); if(walls.length){ const w=walls[(Math.random()*walls.length)|0]; const a=Math.random()*Math.PI*2; e.wx=w.x+Math.cos(a)*(Math.max(w.w,w.d)*0.5+10); e.wz=w.z+Math.sin(a)*(Math.max(w.w,w.d)*0.5+10); } else { const a=Math.random()*Math.PI*2, r=70+Math.random()*210; e.wx=Math.cos(a)*r; e.wz=Math.sin(a)*r; } }catch(err){console.warn('spawn test',err);} } };
-window._spawnDroids=(n=2)=>{ const R=(typeof ARENA_R!=='undefined'?ARENA_R:240); const tr=window._testRoom; for(let k=0;k<n;k++){ let sx,sz; if(tr){ sx=(Math.random()*2-1)*tr.hx*0.7; sz=(Math.random()*2-1)*tr.hz*0.7; } else { const a2=Math.random()*Math.PI*2, r=R*(0.32+Math.random()*0.4); sx=Math.cos(a2)*r; sz=Math.sin(a2)*r; } try{ const e=new DroidekaBot(sx,sz,2); e.addToScene(); GS.enemies.push(e); }catch(err){console.warn('spawn droid',err);} } };
+window._spawnTestSpiders=(n=10)=>{ if(typeof MP!=='undefined'&&MP.active&&!MP.isHost){ mpSend('event',{event:'spawn_req',data:{kind:'spdr',n}}); if(typeof announce==='function')announce('SPIDERS REQUESTED','#ff66cc'); return; } const R=(typeof ARENA_R!=='undefined'?ARENA_R:240); const walls=(typeof _arenaObstacles!=='undefined')?_arenaObstacles.filter(o=>o&&(o.h||0)>=14&&(o.t===undefined||o.t>=0.5)):[]; for(let k=0;k<n;k++){ try{ const e=new Crawler(0,0,1); e.addToScene(); GS.enemies.push(e); if(walls.length){ const w=walls[(Math.random()*walls.length)|0]; const a=Math.random()*Math.PI*2; e.wx=w.x+Math.cos(a)*(Math.max(w.w,w.d)*0.5+10); e.wz=w.z+Math.sin(a)*(Math.max(w.w,w.d)*0.5+10); } else { const a=Math.random()*Math.PI*2, r=70+Math.random()*210; e.wx=Math.cos(a)*r; e.wz=Math.sin(a)*r; } }catch(err){console.warn('spawn test',err);} } };
+window._spawnDroids=(n=2)=>{ if(typeof MP!=='undefined'&&MP.active&&!MP.isHost){ mpSend('event',{event:'spawn_req',data:{kind:'droid',n}}); if(typeof announce==='function')announce('DROIDS REQUESTED','#ff8844'); return; } const R=(typeof ARENA_R!=='undefined'?ARENA_R:240); const tr=window._testRoom; for(let k=0;k<n;k++){ let sx,sz; if(tr){ sx=(Math.random()*2-1)*tr.hx*0.7; sz=(Math.random()*2-1)*tr.hz*0.7; } else { const a2=Math.random()*Math.PI*2, r=R*(0.32+Math.random()*0.4); sx=Math.cos(a2)*r; sz=Math.sin(a2)*r; } try{ const e=new DroidekaBot(sx,sz,2); e.addToScene(); GS.enemies.push(e); }catch(err){console.warn('spawn droid',err);} } };
 window._toggleTestBox=function(){
   if(window._testRoom){ if(window._testBoxObj){ scene.remove(window._testBoxObj); window._testBoxObj.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); window._testBoxObj=null; } if(window._testWallObs){ for(const o of window._testWallObs){ const k=_arenaObstacles.indexOf(o); if(k>=0)_arenaObstacles.splice(k,1); } window._testWallObs=null; } window._testRoom=null; if(typeof announce==='function')announce('TEST BOX OFF','#66ddff'); return; }
   const R=(typeof ARENA_R!=='undefined'?ARENA_R:240), HX=R*0.6, HZ=R*0.6, H=R*0.5;
@@ -4308,12 +4308,12 @@ class SpringPortal{
 //  on transit. Two arches linked to each other.
 // ════════════════════════════════════════════════════════════
 class TeleportArch{
-  constructor(wx,wz,angle=0,radius=45){
-    this.wx=wx; this.wz=wz; this.angle=angle; this.radius=radius;
+  constructor(wx,wz,angle=0,radius=45,wy=0){
+    this.wx=wx; this.wz=wz; this.wy=wy; this.angle=angle; this.radius=radius;
     this._partner=null; // set after both created
     this._cooldown=0; this.t=0;
     this.group=new THREE.Group();
-    this.group.position.set(wx,0,wz);
+    this.group.position.set(wx,wy,wz);
     this.group.rotation.y=angle;
     scene.add(this.group);
 
@@ -4538,7 +4538,7 @@ class TeleportArch{
   _toLocal(wx_,wz_,wy_){
     const dx=wx_-this.wx, dz=wz_-this.wz;
     const ca=Math.cos(-this.angle), sa=Math.sin(-this.angle);
-    return { x:dx*ca-dz*sa, y:wy_, z:dx*sa+dz*ca };
+    return { x:dx*ca-dz*sa, y:wy_-(this.wy||0), z:dx*sa+dz*ca };
   }
 
   update(dt,player){
@@ -4779,7 +4779,7 @@ class TeleportArch{
     const dCos=Math.cos(dest.angle), dSin=Math.sin(dest.angle);
     player.wx=dest.wx + dSin*12;
     player.wz=dest.wz + dCos*12;
-    player.py=clamp(player.py,6,100);
+    player.py=clamp((dest.wy||0)+8,6,4000); player.pvy=0; if(dest.wy>1) player._onPlatform=true;
     const angleDelta=dest.angle-this.angle+Math.PI;
     const cd=Math.cos(angleDelta), sd=Math.sin(angleDelta);
     const nvx=player.vx*cd-player.vz*sd;
@@ -4811,9 +4811,9 @@ class TeleportArch{
   remove(){ scene.remove(this.group); }
 
   // Static factory: create a linked pair
-  static makePair(wx1,wz1,a1,wx2,wz2,a2,radius=45){
-    const a=new TeleportArch(wx1,wz1,a1,radius);
-    const b=new TeleportArch(wx2,wz2,a2,radius);
+  static makePair(wx1,wz1,a1,wx2,wz2,a2,radius=45,wy1=0,wy2=0){
+    const a=new TeleportArch(wx1,wz1,a1,radius,wy1);
+    const b=new TeleportArch(wx2,wz2,a2,radius,wy2);
     a._partner=b; b._partner=a;
     return [a,b];
   }
@@ -6495,6 +6495,7 @@ class Player{
   }
 
   _armBomb(){
+    if((this._bombCool||0)>0){ if(typeof announce==='function')announce('RELOADING\u2026','#ff8800'); if(typeof Audio!=='undefined')Audio.blip(160,0.08,'square',0.12,120); return; }
     this._disarmBomb();
     this.bombArmed=true;
     Audio.blip(600,0.12,'sine',0.2,900);
@@ -6537,7 +6538,7 @@ class Player{
       const v=this._bombLaunchVel, sp=this._bombSpawn||{x:this.wx,y:this.py+40,z:this.wz};
       const thrown=!!this._stickWasPushed;
       const b=new DropBomb(sp.x, sp.z, sp.y, thrown?v.x+this.vx*0.3:v.x, thrown?v.z+this.vz*0.3:v.z, thrown?1.8:1.4, v.y);
-      GS.dropBombs.push(b);
+      this._bombCool=2.0; GS.dropBombs.push(b);
       if(MP.active) mpSend('event',{event:'shot',data:{x:sp.x,z:sp.z,y:sp.y,vx:v.x,vz:v.z,fuse:thrown?1.8:1.4,vy:v.y,bomb:true}});
       this._disarmBomb(); Audio.blip(300,0.12,'sine',0.2,160); announce(thrown?'BOMB THROWN':'BOMB DROPPED','#ff8800');
       return;
@@ -6573,7 +6574,7 @@ class Player{
     const spawnY=this._bombHandPos?this._bombHandPos.y:launchY;
     const b=new DropBomb(spawnX, spawnZ, spawnY, vx, vz, fuse, launchVY);
     if(GS.zone===-16 && this._onPlatform) b._noOrbit=true;   // rooftop bombs ignore building gravity
-    GS.dropBombs.push(b);
+    this._bombCool=2.0; GS.dropBombs.push(b);
     if(MP.active) mpSend('event',{event:'shot',data:{x:spawnX,z:spawnZ,y:spawnY,vx:vx,vz:vz,fuse:fuse,vy:launchVY,bomb:true}});
     this._disarmBomb();
     Audio.blip(300,0.12,'sine',0.2,160);
@@ -6902,6 +6903,7 @@ class Player{
     if(total>0)Audio.bigDie(); updateUI(); return true; }
   update(rawX,rawZ,avx,avz,dt,firing,od,aiming){
     if(!this.alive)return;
+    if(this._bombCool>0) this._bombCool=Math.max(0,this._bombCool-dt);   // bomb reload cooldown
     if(GS.zone===-13){ _rlArenaMove(this,rawX,rawZ,avx,avz,dt); return; }
     if(this.inv>0)this.inv--; if(this.shieldT>0)this.shieldT--;
     if(this.dashCD>0){this.dashCD--;if(this.dashCD<=0)this.dash=1;}
@@ -7580,8 +7582,8 @@ const GS={ state:'menu',score:0,displayScore:0,lives:3,hp:3,maxHp:3,mult:1,multT
 //  POWERUP — glowing vertical ring stack in arena center
 // ════════════════════════════════════════════════════════════
 class Powerup{
-  constructor(wx,wz,kind='weapon'){
-    this.wx=wx; this.wz=wz; this.kind=kind; this.collected=false; this.t=0;
+  constructor(wx,wz,kind='weapon',wy=0){
+    this.wx=wx; this.wz=wz; this.wy=wy; this.kind=kind; this.collected=false; this.t=0;
     this.mesh=new THREE.Group(); scene.add(this.mesh);
     const cols={weapon:0x00ffc8, shield:0x4488ff, speed:0xffe600, magnet:0xff44ff};
     const c=cols[kind]||0x00ffc8;
@@ -7600,7 +7602,7 @@ class Powerup{
     this._core=new THREE.Mesh(new THREE.SphereGeometry(5,12,8),
       new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false}));
     this.mesh.add(this._core);
-    this.mesh.position.set(wx,0,wz);
+    this.mesh.position.set(wx,wy,wz);
     this.size=22;
   }
   update(player,dt){
@@ -7615,11 +7617,11 @@ class Powerup{
       r.rotation.z+=0.03*(i%2?1:-1);
     });
     this._core.scale.setScalar(1+0.2*Math.sin(this.t*4));
-    this.mesh.position.set(this.wx, 0, this.wz);
+    this.mesh.position.set(this.wx, this.wy||0, this.wz);
     // Collection check
     if(!this.collected){
       const d=Math.hypot(player.wx-this.wx,player.wz-this.wz);
-      if(d<28){ this.collected=true; this._collect(player); }
+      if(d<28 && Math.abs((player.py||0)-(this.wy||0))<28){ this.collected=true; this._collect(player); }
     }
   }
   _collect(player){
@@ -11617,7 +11619,7 @@ function _vizLevel(){   // music energy 0..1 (bass-weighted), or null if no anal
     return lvl;
   }catch(e){ window._vizDbgSrc='err'; return null; }
 }
-let _skyViz=null; const _SV_ARMS=16, _SV_SEG=22;
+let _skyViz=null; const _SV_ARMS=16, _SV_SEG=22, _SKYVIZ_ENABLED=false;   // MUTED for now (set true to re-enable) — needs perfecting later
 function _initSkyViz(){
   const N=_SV_ARMS*_SV_SEG, verts=new Float32Array(N*8*3), cols=new Float32Array(N*8*3);
   const g=new THREE.BufferGeometry();
@@ -11629,6 +11631,7 @@ function _initSkyViz(){
   _skyViz={ grp, mesh, g, verts, cols, rad:new Float32Array(_SV_SEG), rot:0, t:0, base:0, pulse:0 };
 }
 function _updateSkyViz(dt){
+  if(!_SKYVIZ_ENABLED){ if(_skyViz&&_skyViz.grp) _skyViz.grp.visible=false; return; }   // muted
   if(typeof camera==='undefined'||typeof scene==='undefined') return;
   const show=(typeof GS!=='undefined') && GS.state==='playing' && GS.zone===-16;
   if(!_skyViz){ if(!show) return; try{ _initSkyViz(); }catch(e){ return; } }
@@ -12235,6 +12238,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===-5) updateTransition(dt);
       if(GS.zone===-16) updateCityTest(dt);
       player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); player.draw(od);
+      if(GS.zone===-16) updateGrindRail(dt);
       { // ── DROP-THROUGH: HOLD the left stick down (a flick = dash) while on a platform ──
         const downHeld=(moveIn.y>0.55)||((keys['KeyS']||keys['ArrowDown'])&&!(keys['KeyW']||keys['ArrowUp']));
         player._downHold=downHeld?((player._downHold||0)+dt):0;
@@ -16649,6 +16653,33 @@ function tryInteractWall(){
   }catch(e){ console.warn('Wall interact error:',e); GS_movingWall=null; }
 }
 let _cityBoxes=[];
+let _cityProps={powerups:[],arches:[],railGroup:null};
+function _cityAddProps(){
+  if(!_cityBoxes.length || typeof scene==='undefined') return;
+  // tallest building hosts the teleporter exit + the spiral rail
+  let tall=_cityBoxes[0]; for(const b of _cityBoxes) if(b.top>tall.top) tall=b;
+  // ── glowing power-up spawn points on a few rooftops ──
+  const kinds=['weapon','shield','speed']; let pi=0;
+  for(const b of _cityBoxes){ if(pi>=3) break; if(b===tall) continue;
+    try{ _cityProps.powerups.push(new Powerup(b.x,b.z,kinds[pi%kinds.length], b.top+12)); pi++; }catch(e){} }
+  // ── teleporter: ground pad in front of the tower <-> rooftop pad on top of it ──
+  try{
+    const gz=tall.z - tall.hd - 80;
+    const [g,r]=TeleportArch.makePair(tall.x,gz,0, tall.x,tall.z,0, 30, 0, tall.top);
+    _cityProps.arches.push(g,r);
+  }catch(e){}
+  // ── spiral grind rail winding down the tower to the street ──
+  try{
+    const cx=tall.x, cz=tall.z, top=tall.top, R=Math.max(tall.hw,tall.hd)+40, turns=2.5, segs=48, pts=[];
+    for(let i=0;i<=segs;i++){ const f=i/segs, ang=f*turns*TAU, y=Math.max(10, top*(1-f)+8*f); pts.push(new THREE.Vector3(cx+Math.cos(ang)*R, y, cz+Math.sin(ang)*R)); }
+    const curve=new THREE.CatmullRomCurve3(pts);
+    window._grindRail=curve; window._grindSamples=[]; for(let gi=0;gi<=100;gi++) window._grindSamples.push({t:gi/100,p:curve.getPoint(gi/100)});
+    const grp=new THREE.Group();
+    grp.add(new THREE.Mesh(new THREE.TubeGeometry(curve,90,2,8,false), new THREE.MeshBasicMaterial({color:0x00ffcc,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false})));
+    grp.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(110)), new THREE.LineBasicMaterial({color:0x00ffff,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false})));
+    scene.add(grp); _cityProps.railGroup=grp;
+  }catch(e){}
+}
 function _cityFace(px,py,pz, lx,ny,lz, wSpan,hSpan, cell, pal){
   const cols=Math.max(3,Math.round(wSpan/cell)+1), rows=Math.max(3,Math.round(hSpan/cell)+1);
   const q=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(lx,ny,lz));
@@ -16728,12 +16759,21 @@ function buildCityTest(){
       _cityAddBuilding(bx,bz,hw,hd,h,pal); placed.push({x:bx,z:bz,hw,hd});
     }
   }
+  _cityAddProps();
   if(typeof _cityMakeTestUI==='function') _cityMakeTestUI();
 }
 function _disposeCityTest(){
   if(typeof _cityRemoveTestUI==='function') _cityRemoveTestUI();
   for(const b of _cityBoxes){ if(b.sheets) for(const s of b.sheets) s.dispose(); }
   _cityBoxes=[];
+  if(_cityProps){
+    for(const pu of _cityProps.powerups){ if(pu.mesh){ scene.remove(pu.mesh); pu.mesh.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); } }
+    for(const ar of _cityProps.arches){ if(ar.remove) ar.remove(); }
+    if(_cityProps.railGroup){ scene.remove(_cityProps.railGroup); _cityProps.railGroup.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); }
+  }
+  _cityProps={powerups:[],arches:[],railGroup:null};
+  window._grindRail=null; window._grindSamples=[];
+  if(player){ player._grinding=null; player._grindCooldown=0; }
 }
 function updateCityTest(dt){
   for(const b of _cityBoxes){ for(const s of b.sheets) s.update(dt); }
@@ -16743,6 +16783,10 @@ function updateCityTest(dt){
     for(const b of _cityBoxes){ if(Math.abs(player.wx-b.x)<b.hw && Math.abs(player.wz-b.z)<b.hd && Math.abs(player.py-b.top)<5){ onRoof=true; roofBox=b; break; } }
     if(onRoof) player._onPlatform=true; else if(player.py>1) player._onPlatform=false;
     player._roofBox = onRoof? roofBox : null;
+  }
+  if(_cityProps && player){
+    for(const pu of _cityProps.powerups){ if(pu.collected){ if(pu.mesh)pu.mesh.visible=false; continue; } pu.update(player,dt); }
+    for(const ar of _cityProps.arches){ if(ar.update) ar.update(dt,player); }
   }
   if(typeof _glGhostOccluders==='function') _glGhostOccluders();   // buildings between camera & robot fade out
   if(dt>0) _cityFpsEMA = _cityFpsEMA*0.92 + (1/dt)*0.08;
@@ -17133,6 +17177,7 @@ const MP = {
   ws: null,         // WebSocket (server transport)
   versus: false,    // PvP damage on (set by host lobby toggle)
   coopSurvival: false, // co-op endless survival on the transition framework
+  freeCity: false,  // FREE CITY: open city sandbox, either player can spawn enemies (host-authoritative)
   ably: null,       // Ably realtime instance
   channel: null,    // Ably channel for the room
   roomCode: null,
@@ -17194,6 +17239,8 @@ function mpConnectAbly(roomCode){
       if(msg.data.id===MP.myId) return;
       if(msg.data.versus!==undefined) MP.versus=msg.data.versus;
       if(msg.data.coopSurvival!==undefined) MP.coopSurvival=msg.data.coopSurvival;
+      if(msg.data.freeCity!==undefined) MP.freeCity=msg.data.freeCity;
+      if(msg.data.cityMode) window._cityMode=msg.data.cityMode;
       // Add host as remote player if not already added
       if(msg.data.hostId&&msg.data.hostId!==MP.myId&&!MP.players[msg.data.hostId]){
         mpAddRemotePlayer(msg.data.hostId,{id:msg.data.hostId,name:msg.data.hostName||'HOST',color:0,x:0,y:0,z:0,aim:0});
@@ -17321,6 +17368,8 @@ function mpHandleMessage(msg){
     case 'start':
       if(msg.versus!==undefined) MP.versus=msg.versus;
       if(msg.coopSurvival!==undefined) MP.coopSurvival=msg.coopSurvival;
+      if(msg.freeCity!==undefined) MP.freeCity=msg.freeCity;
+      if(msg.cityMode) window._cityMode=msg.cityMode;
       // Add all existing players as remote (including host) before game begins
       for(const [id,state] of Object.entries(MP.players)){
         if(id!==MP.myId&&!MP.players[id]._clone){
@@ -17518,6 +17567,12 @@ function mpHandleRemoteEvent(msg){
     case 'player_hit':
       if(d.target===MP.myId) mpTakeDamage(d.dmg||1, msg.id);
       break;
+    case 'spawn_req':
+      if(MP.isHost && GS.state==='playing'){
+        if(d.kind==='droid' && window._spawnDroids) window._spawnDroids(d.n||2);
+        else if(window._spawnTestSpiders) window._spawnTestSpiders(d.n||10);
+      }
+      break;
     case 'surv_spawn':
       if(!MP.isHost && GS.zone===-5){
         const M={Diamond:Diamond,Bouncer:Bouncer,Pinwheel:Pinwheel,Seeker:Seeker,Boss:Boss};
@@ -17552,7 +17607,8 @@ function mpBeginGame(){
   document.getElementById('overlay').style.display='none';
   MP.active=true;
   GS.survival=false;
-  startGame(MP.coopSurvival? -5 : 0);
+  if(MP.freeCity){ window._cityMode=window._cityMode||'random'; startGame(-16); }
+  else startGame(MP.coopSurvival? -5 : 0);
   // Broadcast our own player data so everyone can add us as remote
   setTimeout(()=>{
     if(player) mpSend('player_data',{
@@ -17560,7 +17616,7 @@ function mpBeginGame(){
       x:player.wx, z:player.wz, y:player.py, aim:player.aim
     });
   }, 500);
-  announce(`${MP.coopSurvival?'CO-OP SURVIVAL':(MP.versus?'VERSUS BATTLE':'CO-OP')} · ${Object.keys(MP.players).length+1} PILOTS`, MP.coopSurvival?'#ff2a6d':(MP.versus?'#ff4466':'#aa44ff'));
+  announce(`${MP.freeCity?'FREE CITY':(MP.coopSurvival?'CO-OP SURVIVAL':(MP.versus?'VERSUS BATTLE':'CO-OP'))} · ${Object.keys(MP.players).length+1} PILOTS`, MP.freeCity?'#33ddff':(MP.coopSurvival?'#ff2a6d':(MP.versus?'#ff4466':'#aa44ff')));
 }
 
 // ── Broadcast our state every 50ms ──
@@ -17611,15 +17667,15 @@ document.getElementById('mp-create-btn')?.addEventListener('click',()=>{
   document.getElementById('mp-join-input').style.display='none';
   document.getElementById('mp-start-btn').style.display='none';
   try{ let mt=document.getElementById('mp-mode-toggle'); if(!mt){ mt=document.createElement('div'); mt.id='mp-mode-toggle'; mt.style.cssText='display:flex;gap:6px;justify-content:center;margin:10px 0;flex-wrap:wrap';
-    const apply=(m)=>{ MP.versus=(m==='versus'); MP.coopSurvival=(m==='survival'); };
+    const apply=(m)=>{ MP.versus=(m==='versus'); MP.coopSurvival=(m==='survival'); MP.freeCity=(m==='freecity'); };
     const mk=(label,m,on)=>{ const b=document.createElement('button'); b.textContent=label; b.dataset.m=m; b.style.cssText='padding:8px 14px;font:bold 10px monospace;letter-spacing:1.5px;border-radius:8px;cursor:pointer;border:1.5px solid '+(on?'#00ffc8':'#ffffff22')+';background:'+(on?'#00ffc811':'#00000022')+';color:'+(on?'#00ffc8':'#ffffff88');
       b.onclick=()=>{ apply(m); for(const c of mt.children){ const sel=(c===b); c.style.borderColor=sel?'#00ffc8':'#ffffff22'; c.style.color=sel?'#00ffc8':'#ffffff88'; c.style.background=sel?'#00ffc811':'#00000022'; } }; return b; };
-    mt.appendChild(mk('CO-OP','coop',true)); mt.appendChild(mk('SURVIVAL','survival',false)); mt.appendChild(mk('VERSUS','versus',false));
+    mt.appendChild(mk('CO-OP','coop',true)); mt.appendChild(mk('SURVIVAL','survival',false)); mt.appendChild(mk('VERSUS','versus',false)); mt.appendChild(mk('FREE CITY','freecity',false));
     const lobby=document.getElementById('mp-lobby'), startBtn=document.getElementById('mp-start-btn'); lobby.insertBefore(mt, startBtn||null); }
-    mt.style.display='flex'; MP.versus=false; MP.coopSurvival=false; }catch(e){}
+    mt.style.display='flex'; MP.versus=false; MP.coopSurvival=false; MP.freeCity=false; }catch(e){}
   mpConnect(code);
   document.getElementById('mp-start-btn')?.addEventListener('click',()=>{
-    if(MP.connected){ mpSend('start',{hostId:MP.myId, hostName:MP.myName, versus:MP.versus, coopSurvival:MP.coopSurvival}); mpBeginGame(); }
+    if(MP.connected){ mpSend('start',{hostId:MP.myId, hostName:MP.myName, versus:MP.versus, coopSurvival:MP.coopSurvival, freeCity:MP.freeCity, cityMode:(window._cityMode||'random')}); mpBeginGame(); }
   },{once:true});
 });
 
