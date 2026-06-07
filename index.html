@@ -11620,7 +11620,7 @@ function _initSkyViz(){
   const m=new THREE.LineBasicMaterial({vertexColors:true, transparent:true, opacity:0.95, blending:THREE.AdditiveBlending, depthWrite:false, depthTest:false, fog:false});
   const mesh=new THREE.LineSegments(g,m); mesh.renderOrder=-8; mesh.frustumCulled=false;
   const grp=new THREE.Group(); grp.add(mesh); scene.add(grp);
-  _skyViz={ grp, mesh, g, verts, cols, rad:new Float32Array(_SV_SEG), rot:0, t:0 };
+  _skyViz={ grp, mesh, g, verts, cols, rad:new Float32Array(_SV_SEG), rot:0, t:0, base:0, pulse:0 };
 }
 function _updateSkyViz(dt){
   if(typeof camera==='undefined'||typeof scene==='undefined') return;
@@ -11629,20 +11629,25 @@ function _updateSkyViz(dt){
   const S=_skyViz; S.grp.visible=show; if(!show) return;
   S.t+=dt; S.rot+=dt*0.05;
   let lvl=_vizLevel(), target;
-  if(lvl===null || lvl<0.015) target=0.4+0.3*Math.sin(S.t*1.8)+0.14*Math.sin(S.t*3.7);   // no music -> breathe
-  else target=Math.min(1.7, lvl*2.6);
-  S.rad[0]+=(target-S.rad[0])*Math.min(1,dt*22);                           // centre snaps to the beat
-  for(let i=1;i<_SV_SEG;i++) S.rad[i]+=(S.rad[i-1]-S.rad[i])*Math.min(1,dt*11);   // wave eases OUTWARD along each arm
-  const Cx=camera.position.x, Cz=camera.position.z, CY=120, R=1350, TH0=0.05, THm=2.25;   // low umbrella: canopy edge on the horizon, tails drape DOWN past it all the way around -> full-background ring
+  if(lvl===null){ target=0.35+0.22*Math.sin(S.t*2.2); }                    // no analyser -> gentle breathe
+  else {
+    S.base += (lvl-S.base)*dt*0.6;                                          // slow rolling baseline of loudness
+    const beat=Math.max(0, lvl-S.base);                                     // energy ABOVE baseline = the beat
+    target=Math.min(1.8, lvl*0.55 + beat*6);                                // steady bob + punchy beat, NOT saturated
+  }
+  S.pulse += (target-S.pulse)*Math.min(1,dt*16);                           // whole-dome beat response -> the VISIBLE arms react, not just the hidden centre
+  S.rad[0]+=(target-S.rad[0])*Math.min(1,dt*24);
+  for(let i=1;i<_SV_SEG;i++) S.rad[i]+=(S.rad[i-1]-S.rad[i])*Math.min(1,dt*15);   // ripple travels outward for detail
+  const Cx=camera.position.x, Cz=camera.position.z, CY=250, R=2800, TH0=0.05, THm=1.55;   // FAR backdrop, arms reach down to (not below) the horizon
   const verts=S.verts, cols=S.cols; let p=0, c=0;
   for(let a=0;a<_SV_ARMS;a++){
     const phi=(a/_SV_ARMS)*Math.PI*2 + S.rot, cp=Math.cos(phi), sp=Math.sin(phi), blue=(a%2===0);
     for(let i=0;i<_SV_SEG;i++){
-      const th=TH0+(i/(_SV_SEG-1))*(THm-TH0), ct=Math.cos(th), st=Math.sin(th), rv=S.rad[i];
+      const th=TH0+(i/(_SV_SEG-1))*(THm-TH0), ct=Math.cos(th), st=Math.sin(th), rv=S.rad[i]*0.4 + S.pulse*0.7;
       const dx=st*cp, dy=ct, dz=st*sp;
       const etx=ct*cp, ety=-st, etz=ct*sp;
       const efx=-sp, efz=cp;
-      const rr=R+rv*280, px=Cx+dx*rr, py=CY+dy*rr, pz=Cz+dz*rr, sQ=72+rv*250;
+      const rr=R+rv*350, px=Cx+dx*rr, py=CY+dy*rr, pz=Cz+dz*rr, sQ=22+rv*100;
       const Tx=px+etx*sQ,Ty=py+ety*sQ,Tz=pz+etz*sQ, Rx=px+efx*sQ,Ry=py,Rz=pz+efz*sQ;
       const Bx=px-etx*sQ,By=py-ety*sQ,Bz=pz-etz*sQ, Lx=px-efx*sQ,Ly=py,Lz=pz-efz*sQ;
       verts[p++]=Tx;verts[p++]=Ty;verts[p++]=Tz; verts[p++]=Rx;verts[p++]=Ry;verts[p++]=Rz;
