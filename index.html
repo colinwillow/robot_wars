@@ -18632,7 +18632,7 @@ function _attachBoot(boot,foot,toe){
   const desired=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right,up2,fwd));
   const bq=new THREE.Quaternion(); foot.getWorldQuaternion(bq);
   boot.quaternion.copy(bq.clone().invert().multiply(desired));                    // local correction -> upright now, follows the bone after
-  const bs=new THREE.Vector3(); foot.getWorldScale(bs); const inv=(1/(bs.x||1))*4.35;   // 75% of previous size
+  const bs=new THREE.Vector3(); foot.getWorldScale(bs); const inv=(1/(Math.abs(bs.x)||1))*4.35;   // 75% of previous size; ABS so a mirrored (right-side) Mixamo bone with negative scale.x doesn't flip the boot 180° about X
   boot.userData.invScale=inv; boot.userData.grow=0; boot.scale.setScalar(inv*0.05);
   boot.position.set(0,0,0);
   foot.add(boot);
