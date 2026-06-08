@@ -6112,8 +6112,8 @@ function _smooth(x){ x=Math.max(0,Math.min(1,x)); return x*x*(3-2*x); }
 const _GREN_BODY=new THREE.CylinderGeometry(2.0,2.3,7,8); _GREN_BODY.rotateX(Math.PI/2);
 const _GREN_NOSE=new THREE.ConeGeometry(2.0,3.6,8); _GREN_NOSE.rotateX(Math.PI/2);
 const _GREN_FIN=new THREE.BoxGeometry(0.4,3.0,2.6);
-const _GREN_BODYMAT=new THREE.MeshBasicMaterial({color:0x77863a});
-const _GREN_DARKMAT=new THREE.MeshBasicMaterial({color:0x39431f});
+const _GREN_BODYMAT=new THREE.MeshBasicMaterial({color:0xb6ff3a});
+const _GREN_DARKMAT=new THREE.MeshBasicMaterial({color:0x6fd428});
 class Grenade{
   constructor(wx,wz,y,vx,vz,vy){
     this.wx=wx; this.wz=wz; this.y=y; this.vx=vx; this.vz=vz; this.vy=(vy!==undefined?vy:160);
@@ -6824,7 +6824,9 @@ function _updateGrenadeAim(pl,dt){
   if(!mk){ const m=new THREE.Mesh(new THREE.RingGeometry(7,11,26), new THREE.MeshBasicMaterial({color:0x9be84a,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); m.rotation.x=-Math.PI/2; scene.add(m); pl._gnMark=mk=m; }
   mk.visible=true;
   const mag=Math.min(1,pl._aimMag), D=55+mag*180, a=pl.aim;
-  mk.position.set(pl.wx+Math.cos(a)*D, 9.4, pl.wz+Math.sin(a)*D);
+  const lx=pl.wx+Math.cos(a)*D, lz=pl.wz+Math.sin(a)*D; let ly=9.4;
+  if(GS.zone===-16 && typeof _cityBoxes!=='undefined'){ for(const b of _cityBoxes){ if(Math.abs(lx-b.x)<b.hw && Math.abs(lz-b.z)<b.hd && b.top+1>ly) ly=b.top+1; } }   // sit on the rooftop if the landing spot is on a building
+  mk.position.set(lx, ly, lz);
   pl._gnT=(pl._gnT||0)+dt; mk.material.opacity=0.5+0.28*Math.sin(pl._gnT*9); mk.scale.setScalar(1+0.08*Math.sin(pl._gnT*9));
 }
 window._updateGrenadeAim=_updateGrenadeAim;
@@ -17897,17 +17899,19 @@ function _buildCityDome(){
   geo.setAttribute('position',pa); geo.setAttribute('color',ca);
   const mat=new THREE.LineBasicMaterial({vertexColors:true,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:true,fog:false});
   const mesh=new THREE.LineSegments(geo,mat); mesh.frustumCulled=false; mesh.renderOrder=-10;
-  const grp=new THREE.Group(); grp.scale.setScalar(0.62); grp.add(mesh); scene.add(grp);
+  const grp=new THREE.Group(); grp.scale.setScalar(1.0); grp.add(mesh); scene.add(grp);
   // invisible depth-only ground mask -> writes depth at ground level so the sky mandala sinks behind the REAL ground (true perspective horizon, no flat clip, no show-through)
-  const occ=new THREE.Mesh(new THREE.CircleGeometry(6000,40), new THREE.MeshBasicMaterial({colorWrite:false,depthWrite:true}));
-  occ.rotation.x=-Math.PI/2; occ.position.y=-3; occ.renderOrder=-100; occ.frustumCulled=false; scene.add(occ);
-  _cityDome={grp,mesh,geo,mat,occ,pos,col,pa,ca,rv:new Float32Array(NR),targetJump:1,prevSum:0,rotCounter:0,frame:0,NR,SPK,RLO,RHI};
+  const occ=new THREE.Mesh(new THREE.RingGeometry(500,6000,56), new THREE.MeshBasicMaterial({colorWrite:false,depthWrite:true,side:THREE.DoubleSide}));
+  occ.rotation.x=-Math.PI/2; occ.position.y=-3; occ.renderOrder=-100; occ.frustumCulled=false; scene.add(occ);   // hole (r<500) around player keeps the ground-deformation well visible
+  _cityDome={grp,mesh,geo,mat,occ,bocc:null,_boccN:-1,_bmat:null,pos,col,pa,ca,rv:new Float32Array(NR),targetJump:1,prevSum:0,rotCounter:0,frame:0,NR,SPK,RLO,RHI};
+  try{ _cityBuildBOcc(_cityDome); }catch(e){}
 }
 const _CSKY_DIR=new THREE.Vector3();
 function _updateCityDome(dt){
   if(typeof camera==='undefined') return;
   if(!_cityDome){ try{ _buildCityDome(); }catch(e){ return; } }
   const v=_cityDome; if(!v) return;
+  if(typeof _cityBoxes!=='undefined' && _cityBoxes.length!==v._boccN){ try{ _cityBuildBOcc(v); }catch(e){} }
   // ── cascade from music (same as the room visualizer) ──
   if(typeof _vizLevel==='function') _vizLevel();
   let sum=0; if(typeof _vizFFT!=='undefined' && _vizFFT && _vizFFT.data){ for(let i=6;i<30;i++) sum+=_vizFFT.data[i]; }
@@ -17956,12 +17960,22 @@ function _updateCityDome(dt){
   v.pa.needsUpdate=true; v.ca.needsUpdate=true;
   // ── park it far ahead + high, always facing the camera (trippy billboard) ──
   camera.getWorldDirection(_CSKY_DIR); _CSKY_DIR.y=0; if(_CSKY_DIR.lengthSq()<1e-4)_CSKY_DIR.set(0,0,-1); _CSKY_DIR.normalize();
-  const D=1400, HSKY=260;
+  const D=2400, HSKY=460;
   v.grp.position.set(camera.position.x+_CSKY_DIR.x*D, camera.position.y+HSKY, camera.position.z+_CSKY_DIR.z*D);
   v.grp.quaternion.copy(camera.quaternion);
-  if(v.occ){ v.occ.position.x=camera.position.x; v.occ.position.z=camera.position.z; }
+  if(v.occ){ const _fx=(typeof player!=='undefined'&&player)?player.wx:camera.position.x, _fz=(typeof player!=='undefined'&&player)?player.wz:camera.position.z; v.occ.position.x=_fx; v.occ.position.z=_fz; }
 }
-function _disposeCityDome(){ const v=_cityDome; if(!v) return; if(v.grp) scene.remove(v.grp); if(v.occ){ scene.remove(v.occ); if(v.occ.geometry)v.occ.geometry.dispose(); if(v.occ.material)v.occ.material.dispose(); } if(v.geo)v.geo.dispose(); if(v.mat)v.mat.dispose(); _cityDome=null; }
+function _cityBuildBOcc(v){
+  if(v.bocc){ for(const m of v.bocc){ scene.remove(m); if(m.geometry)m.geometry.dispose(); } }
+  v.bocc=[]; v._boccN=(typeof _cityBoxes!=='undefined')?_cityBoxes.length:0;
+  if(typeof _cityBoxes==='undefined') return;
+  if(!v._bmat) v._bmat=new THREE.MeshBasicMaterial({colorWrite:false,depthWrite:true});
+  for(const b of _cityBoxes){   // inset a touch so the wireframe walls stay visible in FRONT; the mask hides anything BEHIND the building
+    const g=new THREE.BoxGeometry(Math.max(2,2*b.hw-4), Math.max(2,b.top-2), Math.max(2,2*b.hd-4));
+    const m=new THREE.Mesh(g,v._bmat); m.position.set(b.x,(b.top-2)/2,b.z); m.renderOrder=-99; m.frustumCulled=false; scene.add(m); v.bocc.push(m);
+  }
+}
+function _disposeCityDome(){ const v=_cityDome; if(!v) return; if(v.grp) scene.remove(v.grp); if(v.occ){ scene.remove(v.occ); if(v.occ.geometry)v.occ.geometry.dispose(); if(v.occ.material)v.occ.material.dispose(); } if(v.bocc){ for(const m of v.bocc){ scene.remove(m); if(m.geometry)m.geometry.dispose(); } } if(v._bmat)v._bmat.dispose(); if(v.geo)v.geo.dispose(); if(v.mat)v.mat.dispose(); _cityDome=null; }
 let _cityFpsEMA=60, _cityFpsT=0;
 function _cityRemoveTestUI(){ if(typeof document==='undefined') return; const e=document.getElementById('city-test-ui'); if(e) e.remove(); }
 function _cityMakeTestUI(){
@@ -18009,8 +18023,8 @@ window._cityBuildFromData=function(boxes){   // client mirrors the host's exact 
   if(typeof _cityMakeTestUI==='function') _cityMakeTestUI();
 };
 // ════════ PROCEDURAL ARMOR TEST — robotic SPEED BOOTS that bone-attach to the live skeleton ════════
-const _BOOT_METAL=new THREE.MeshStandardMaterial({color:0x3a4450,metalness:0.78,roughness:0.36,emissive:0x0a2233,emissiveIntensity:0.9});
-const _BOOT_DARK =new THREE.MeshStandardMaterial({color:0x1b2027,metalness:0.6,roughness:0.5,emissive:0x05101a,emissiveIntensity:0.6});
+const _BOOT_METAL=new THREE.MeshStandardMaterial({color:0x18e0ff,metalness:0.5,roughness:0.35,emissive:0x0aa6c8,emissiveIntensity:1.1});   // DIAGNOSTIC cyan
+const _BOOT_DARK =new THREE.MeshStandardMaterial({color:0xff2da0,metalness:0.5,roughness:0.45,emissive:0xc01060,emissiveIntensity:1.0});   // DIAGNOSTIC magenta (was near-black)
 const _BOOT_GLOW =new THREE.MeshBasicMaterial({color:0x00ffaa,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
 const _BOOT_THRUST=new THREE.MeshBasicMaterial({color:0x33ffdd,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false});
 function _makeRoboBoot(side){
