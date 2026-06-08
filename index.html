@@ -18718,28 +18718,31 @@ function _makeRoboBoot(side){
   g.traverse(o=>{ o.frustumCulled=false; });
   return g;
 }
-function _orientBoot(b){
-  const foot=b._foot; if(!foot||!player||!player.model) return;
-  player.model.updateWorldMatrix(true,false);
-  const Pf=new THREE.Vector3(); foot.getWorldPosition(Pf);
-  // Ignore the foot bone's OWN rotation (it's mirrored/reflected per side). Build a clean target: upright, facing the
-  // body's forward (model local +Z), and express it in the MODEL's local space — the model is a normal rotation+scale
-  // (no bone reflection), so this is well-defined and identical for both feet.
+// Per-side fine-tune hooks (independent). Identity = the base orient. If ONE boot is still off by a clean
+// angle, set ONLY that side's Euler here (radians) and the other side is untouched.
+const _BOOT_FIX_L=new THREE.Euler(0,0,0);
+const _BOOT_FIX_R=new THREE.Euler(0,0,0);
+function _attachBoot(boot,foot,toe,side){
+  player.model.updateWorldMatrix(true,true);
+  // base orient: upright, facing the MODEL forward (so the boot follows the foot bone's animated pose afterward)
   const mq=player.model.getWorldQuaternion(new THREE.Quaternion());
   let fwd=new THREE.Vector3(0,0,1).applyQuaternion(mq); fwd.y=0; if(fwd.lengthSq()<1e-6) fwd.set(0,0,1); fwd.normalize();
   const up=new THREE.Vector3(0,1,0);
   const right=new THREE.Vector3().crossVectors(up,fwd); if(right.lengthSq()<1e-6) right.set(1,0,0); right.normalize();
   const up2=new THREE.Vector3().crossVectors(fwd,right).normalize();
-  const desiredQ=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right,up2,fwd));
-  b.position.copy(player.model.worldToLocal(Pf.clone()));
-  b.quaternion.copy(mq.clone().invert().multiply(desiredQ));
-  const ms=new THREE.Vector3(); player.model.getWorldScale(ms); b._wsc=4.35/(Math.abs(ms.x)||1);   // boot ends up 4.35 world units regardless of model scale
-}
-function _attachBoot(boot,foot,toe,side){
-  boot._foot=foot; boot.userData.grow=0;
-  player.model.add(boot);                          // child of the BODY (clean transform), NOT the mirrored foot bone
-  _orientBoot(boot);
-  boot.scale.setScalar((boot._wsc||4.35)*0.05);    // start tiny for the grow-in
+  const desired=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right,up2,fwd));
+  desired.multiply(new THREE.Quaternion().setFromEuler(side<0?_BOOT_FIX_L:_BOOT_FIX_R));   // independent per-side nudge
+  const bq=new THREE.Quaternion(); foot.getWorldQuaternion(bq);
+  boot.quaternion.copy(bq.clone().invert().multiply(desired));   // local correction -> upright now, then rides the bone
+  const bs=new THREE.Vector3(); foot.getWorldScale(bs);
+  // INDEPENDENT per side (each is the config that was confirmed upright for that foot):
+  //   LEFT  -> signed bone scale   RIGHT -> absolute bone scale
+  let inv;
+  if(side<0){ inv=(1/(bs.x||1))*4.35; }            // LEFT
+  else      { inv=(1/(Math.abs(bs.x)||1))*4.35; }  // RIGHT
+  boot.userData.invScale=inv; boot.userData.grow=0; boot.scale.setScalar(inv*0.05);
+  boot.position.set(0,0,0);
+  foot.add(boot);                                  // parented to the bone -> rotates with the foot animation
   (player._boots=player._boots||[]).push(boot);
 }
 function _collectBoots(){
@@ -18783,9 +18786,7 @@ function _updateBootStation(dt){
 function _updateBoots(dt){
   if(!player||!player._boots) return;
   for(const b of player._boots){
-    _orientBoot(b);                                // re-place at the foot + keep upright/forward every frame
-    if(b.userData.grow<1) b.userData.grow=Math.min(1,b.userData.grow+dt*3.2);
-    const e=b.userData.grow, sw=b._wsc||4.35; b.scale.setScalar(sw*(0.2+0.8*e));
+    if(b.userData.grow<1){ b.userData.grow=Math.min(1,b.userData.grow+dt*3.2); const e=b.userData.grow; b.scale.setScalar(b.userData.invScale*(0.2+0.8*e)); }
     const jet=b.userData.jet; if(jet){ const f=(player._speedBoost>0)?(0.55+Math.random()*0.45):0.0; jet.material.opacity=f; jet.scale.z=0.6+f*0.9; }
   }
 }
@@ -20540,4 +20541,3 @@ try{ init(); requestAnimationFrame(loop); }catch(e){ console.error('Init failed:
 </script>
 </body>
 </html>
- 
