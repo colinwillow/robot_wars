@@ -498,6 +498,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
     <div style="font-family:'Orbitron',sans-serif;font-size:8px;letter-spacing:4px;color:#ffffff33;margin:16px 0 8px;text-align:center">── SANDBOX ──</div>
     <button onclick="window._cityMode='random';startGameAtLevel(-16)" style="width:100%;max-width:360px;margin:0 auto;display:block;padding:13px;font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;color:#33ddff;background:rgba(51,221,255,0.06);border:1.5px solid #33ddff55;border-radius:8px;cursor:pointer">CITY TEST — procedural block experiment</button>
     <button onclick="window._cityMode='grid';startGameAtLevel(-16)" style="width:100%;max-width:360px;margin:8px auto 0;display:block;padding:13px;font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;color:#39ffc9;background:rgba(57,255,201,0.06);border:1.5px solid #39ffc955;border-radius:8px;cursor:pointer">CITY MAP — street-grid layout (perf test)</button>
+    <button onclick="window._cityGoto&&window._cityGoto()" style="width:100%;max-width:360px;margin:8px auto 0;display:block;padding:13px;font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;color:#ffd24a;background:rgba(255,210,74,0.06);border:1.5px solid #ffd24a55;border-radius:8px;cursor:pointer">CITY FROM MAP — real OSM footprints (live web)</button>
     <button onclick="startGameAtLevel(-17)" style="width:100%;max-width:360px;margin:8px auto 0;display:block;padding:13px;font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;color:#ff7df0;background:rgba(255,125,240,0.06);border:1.5px solid #ff7df055;border-radius:8px;cursor:pointer">SOUND REACTIVE — music visualizer sandbox</button>
     <button onclick="window._showScreen('character')" style="margin-top:20px;font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:4px;color:#ffffff33;background:none;border:none;cursor:pointer"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:7px"><path d="M15 5 8 12l7 7"/></svg>BACK</button>
   </div>
@@ -987,6 +988,7 @@ function _timeFXoff(){ return (typeof GS!=='undefined') && (GS.zone===-11 || GS.
 function hitStop(f){ if(_timeFXoff()) return; TIME.freeze=Math.max(TIME.freeze,f); }
 function slowmo(s,h){ if(_timeFXoff()) return; TIME.target=s; TIME.hold=h; }
 window._spawnTestSpiders=(n=10)=>{ if(typeof MP!=='undefined'&&MP.active&&!MP.isHost){ mpSend('event',{event:'spawn_req',data:{kind:'spdr',n}}); if(typeof announce==='function')announce('SPIDERS REQUESTED','#ff66cc'); return; } const R=(typeof ARENA_R!=='undefined'?ARENA_R:240); const walls=(typeof _arenaObstacles!=='undefined')?_arenaObstacles.filter(o=>o&&(o.h||0)>=14&&(o.t===undefined||o.t>=0.5)):[]; for(let k=0;k<n;k++){ try{ const e=new Crawler(0,0,1); e.addToScene(); GS.enemies.push(e); if(walls.length){ const w=walls[(Math.random()*walls.length)|0]; const a=Math.random()*Math.PI*2; e.wx=w.x+Math.cos(a)*(Math.max(w.w,w.d)*0.5+10); e.wz=w.z+Math.sin(a)*(Math.max(w.w,w.d)*0.5+10); } else { const a=Math.random()*Math.PI*2, r=70+Math.random()*210; e.wx=Math.cos(a)*r; e.wz=Math.sin(a)*r; } }catch(err){console.warn('spawn test',err);} } };
+window._spawnGhosts=(n=5)=>{ const R=(typeof ARENA_R!=='undefined'?ARENA_R:240); for(let k=0;k<n;k++){ try{ const a=Math.random()*Math.PI*2, r=80+Math.random()*150; const e=new Ghost(Math.cos(a)*r,Math.sin(a)*r,2); e.addToScene(); GS.enemies.push(e); }catch(err){console.warn('spawn ghost',err);} } };
 window._spawnDroids=(n=2)=>{ if(typeof MP!=='undefined'&&MP.active&&!MP.isHost){ mpSend('event',{event:'spawn_req',data:{kind:'droid',n}}); if(typeof announce==='function')announce('DROIDS REQUESTED','#ff8844'); return; } const R=(typeof ARENA_R!=='undefined'?ARENA_R:240); const tr=window._testRoom; for(let k=0;k<n;k++){ let sx,sz; if(tr){ sx=(Math.random()*2-1)*tr.hx*0.7; sz=(Math.random()*2-1)*tr.hz*0.7; } else { const a2=Math.random()*Math.PI*2, r=R*(0.32+Math.random()*0.4); sx=Math.cos(a2)*r; sz=Math.sin(a2)*r; } try{ const e=new DroidekaBot(sx,sz,2); e.addToScene(); GS.enemies.push(e); }catch(err){console.warn('spawn droid',err);} } };
 window._toggleTestBox=function(){
   if(window._testRoom){ if(window._testBoxObj){ scene.remove(window._testBoxObj); window._testBoxObj.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); window._testBoxObj=null; } if(window._testWallObs){ for(const o of window._testWallObs){ const k=_arenaObstacles.indexOf(o); if(k>=0)_arenaObstacles.splice(k,1); } window._testWallObs=null; } window._testRoom=null; if(typeof announce==='function')announce('TEST BOX OFF','#66ddff'); return; }
@@ -3404,35 +3406,55 @@ class HoverBomber extends Enemy{
 class Ghost extends Enemy{
   constructor(wx,wz,wave){
     super(wx,wz);
-    this.glow=[0.6,0,1]; this.size=14; this.hp=2;
-    this.visible=0; this.attackT=0; this.t=0;
-    const geo=new THREE.IcosahedronGeometry(14,0);
-    this.mat=new THREE.MeshBasicMaterial({color:0x8800ff,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,wireframe:true});
-    this.mesh=new THREE.Mesh(geo,this.mat);
-    scene.add(this.mesh);
+    this.glow=[0.42,1,0.92]; this.size=15; this.hp=3; this.score=120; this.t=Math.random()*6.28; this._yaw=0; this._barY=34;
+    const g=new THREE.Group();
+    // body — lathe profile: rounded dome -> belly -> rim
+    const PR=[[9.5,0],[10.6,3],[11,8],[11,15],[10.3,20],[8.2,24],[5.2,27],[2.4,29],[0.001,30]];
+    const prof=PR.map(([r,y])=>new THREE.Vector2(r,y));
+    const bodyGeo=new THREE.LatheGeometry(prof,24);
+    this.bodyMat=new THREE.MeshStandardMaterial({color:0x76f7e6,emissive:0x1ec9a8,emissiveIntensity:1.35,transparent:true,opacity:0.85,roughness:0.42,metalness:0.08});
+    g.add(new THREE.Mesh(bodyGeo,this.bodyMat));
+    // ghostly aura shell (additive, slightly larger, inside-out)
+    this.glowMat=new THREE.MeshBasicMaterial({color:0x6effe0,transparent:true,opacity:0.16,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.BackSide});
+    const aura=new THREE.Mesh(bodyGeo,this.glowMat); aura.scale.setScalar(1.13); g.add(aura);
+    // scalloped skirt — ring of downward bumps along the bottom rim
+    this._skirt=[]; const NB=7, bumpGeo=new THREE.SphereGeometry(3.0,10,8);
+    for(let i=0;i<NB;i++){ const a=(i/NB)*Math.PI*2; const b=new THREE.Mesh(bumpGeo,this.bodyMat);
+      b.position.set(Math.cos(a)*8.7,0,Math.sin(a)*8.7); b.scale.y=0.85; b.userData.y0=0; g.add(b); this._skirt.push(b); }
+    // eyes (front = +Z) + glints
+    const eyeMat=new THREE.MeshBasicMaterial({color:0x05202a}), eyeGeo=new THREE.SphereGeometry(2.3,10,8);
+    const eL=new THREE.Mesh(eyeGeo,eyeMat); eL.position.set(-3.9,16,9.5); eL.scale.set(1,1.25,0.7); g.add(eL);
+    const eR=new THREE.Mesh(eyeGeo,eyeMat); eR.position.set(3.9,16,9.5); eR.scale.set(1,1.25,0.7); g.add(eR);
+    const glMat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.9}), glGeo=new THREE.SphereGeometry(0.62,6,6);
+    const g1=new THREE.Mesh(glGeo,glMat); g1.position.set(-3.1,16.9,10.9); g.add(g1);
+    const g2=new THREE.Mesh(glGeo,glMat); g2.position.set(4.7,16.9,10.9); g.add(g2);
+    this.mesh=g; scene.add(this.mesh); this.mesh.visible=false;
   }
   update(p,dt){
-    this.baseUpdate(); this.t+=dt; this.attackT+=dt;
-    const dx=p.wx-this.wx, dz=p.wz-this.wz, dist=Math.hypot(dx,dz);
-    // Drift toward player
-    this.vx+=(dx/dist)*70*dt; this.vz+=(dz/dist)*70*dt;
-    this.vx*=0.93; this.vz*=0.93;
+    this.baseUpdate(); this.t+=dt;
+    const dx=p.wx-this.wx, dz=p.wz-this.wz, dist=Math.hypot(dx,dz)||1;
+    this.vx+=(dx/dist)*55*dt; this.vz+=(dz/dist)*55*dt;
+    this.vx*=0.94; this.vz*=0.94;
     this.wx+=this.vx*dt; this.wz+=this.vz*dt;
-    bounceCircle(this,10);
-    // Visibility: visible only near player or before attack
-    const nearPlayer=dist<80;
-    const attacking=this.attackT>3.5&&this.attackT<4.0;
-    this.visible=lerp(this.visible,nearPlayer||attacking?1:0,0.06);
-    this.mat.opacity=this.visible*0.7;
-    // Flash bright before attacking
-    if(this.attackT>3.2) this.mat.color.setHex(0xff00ff);
-    else this.mat.color.setHex(0x8800ff);
-    // Attack: brief speed burst directly at player
-    if(this.attackT>4.0){ this.vx=(dx/dist)*300; this.vz=(dz/dist)*300; this.attackT=0; }
-    this.mesh.position.set(this.wx,9,this.wz);
-    this.mesh.rotation.y+=dt*2;
+    if(typeof bounceCircle==='function') bounceCircle(this,11);
+    const y=19+Math.sin(this.t*2.2)*3.2 + (this._kbYOff||0);
+    this.mesh.position.set(this.wx,y,this.wz);
+    // face the player so the eyes track you (+Z is front)
+    const tYaw=Math.atan2(dx,dz); let d=tYaw-this._yaw; while(d>Math.PI)d-=TAU; while(d<-Math.PI)d+=TAU;
+    this._yaw+=d*Math.min(1,dt*4);
+    this.mesh.rotation.set(Math.sin(this.t*1.5)*0.05, this._yaw, Math.sin(this.t*1.8)*0.05);
+    for(let i=0;i<this._skirt.length;i++){ const b=this._skirt[i]; b.position.y=b.userData.y0+Math.sin(this.t*4.5+i*0.9)*1.5; }
+    this.mesh.scale.setScalar(this.spawn<1?(0.25+this.spawn*0.75):1);
+    if(this.glowMat) this.glowMat.opacity=0.12+0.08*(0.5+0.5*Math.sin(this.t*3));
   }
-  die(){ ps.burst(this.wx,this.wz,[0.6,0,1],10,60); grid.shock(this.wx,this.wz,2); this.remove(); }
+  die(){
+    ps.burst(this.wx,this.wz,this.glow,26,130); ps.ring(this.wx,this.wz,this.glow,18,150);
+    grid.push(this.wx,this.wz,1.6,70); grid.shock(this.wx,this.wz,1.4); addTrauma(0.05);
+    if(typeof Audio!=='undefined'){ Audio.blip(420,0.3,'sine',0.18,120); Audio.noise(0.2,0.12,1400); }
+    if(this._hpBar&&this.mesh){ this.mesh.remove(this._hpBar); this._hpBar=null; }
+    this.remove();
+  }
+  remove(){ if(this.mesh){ scene.remove(this.mesh); this.mesh.traverse(o=>{ if(o.geometry&&o.geometry.dispose)o.geometry.dispose(); if(o.material&&o.material.dispose)o.material.dispose(); }); } }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -17778,6 +17800,75 @@ function _cityAddBuilding(bx,bz,hw,hd,h,pal){
   for(const s of sheets) s._cityWall=true;
   _cityBoxes.push({x:bx,z:bz,hw,hd,top:h,sheets});
 }
+// ════════ MAP-BASED CITY — pour OSM building footprints through the same walkable grid-shell builder ════════
+const _MAP_SCALE=3;   // game units per real-world metre
+function _cityLatLonToXZ(lat,lon,lat0,lon0){
+  const mLat=111320, mLon=111320*Math.cos(lat0*Math.PI/180);
+  return { x:(lon-lon0)*mLon*_MAP_SCALE, z:-(lat-lat0)*mLat*_MAP_SCALE };   // north -> -z (player spawns facing north)
+}
+function _cityBuildFromFootprints(foot,pal){
+  // foot: array of { pts:[[lat,lon]...], levels?, height? }  OR prebuilt { cx,cz,hw,hd,h }
+  let lat0=0,lon0=0,n=0;
+  for(const f of foot){ if(f.pts) for(const pt of f.pts){ lat0+=pt[0]; lon0+=pt[1]; n++; } }
+  if(n){ lat0/=n; lon0/=n; }
+  let count=0;
+  for(const f of foot){
+    let cx,cz,hw,hd,h;
+    if(f.pts){
+      let mnx=1e9,mxx=-1e9,mnz=1e9,mxz=-1e9;
+      for(const pt of f.pts){ const q=_cityLatLonToXZ(pt[0],pt[1],lat0,lon0); if(q.x<mnx)mnx=q.x; if(q.x>mxx)mxx=q.x; if(q.z<mnz)mnz=q.z; if(q.z>mxz)mxz=q.z; }
+      cx=(mnx+mxx)/2; cz=(mnz+mxz)/2; hw=Math.max(12,(mxx-mnx)/2); hd=Math.max(12,(mxz-mnz)/2);
+      const lvls=f.levels|| (f.height? Math.round(f.height/3) : (4+Math.floor(Math.random()*16)));
+      h=Math.max(48, Math.round(lvls*3*_MAP_SCALE*1.4));
+    } else { cx=f.cx; cz=f.cz; hw=f.hw; hd=f.hd; h=f.h; }
+    if(Math.hypot(cx-0,cz-160)<130) continue;   // keep a clear spawn plaza at (0,160)
+    if(hw>360||hd>360) continue;                // skip giant park/relation outlines
+    _cityAddBuilding(cx,cz,hw,hd,h,pal); count++;
+  }
+  return count;
+}
+function _cityBuildSampleMap(){
+  // offline fallback (sandbox has no live web): a hand-authored irregular downtown so the pipeline is visible
+  _disposeCityTest(); _cityBoxes=[];
+  const B=[
+    {cx:-120,cz:30,hw:50,hd:70,h:260},{cx:10,cz:-10,hw:74,hd:52,h:430},{cx:140,cz:40,hw:55,hd:62,h:300},
+    {cx:-140,cz:-160,hw:46,hd:56,h:190},{cx:20,cz:-180,hw:82,hd:46,h:540},{cx:160,cz:-150,hw:50,hd:72,h:250},
+    {cx:-110,cz:230,hw:60,hd:52,h:210},{cx:60,cz:250,hw:56,hd:66,h:350},{cx:200,cz:240,hw:48,hd:48,h:170},
+    {cx:-240,cz:-10,hw:42,hd:92,h:300},{cx:260,cz:-40,hw:44,hd:84,h:280},{cx:-30,cz:-340,hw:90,hd:60,h:470}
+  ];
+  for(const b of B) _cityAddBuilding(b.cx,b.cz,b.hw,b.hd,b.h,'neon');
+  _cityAddProps(); if(typeof _cityMakeTestUI==='function')_cityMakeTestUI();
+  if(typeof announce==='function')announce('SAMPLE MAP CITY (offline)','#39ffc9');
+}
+function _cityOverpass(lat,lon,r){ return '[out:json][timeout:25];(way["building"](around:'+r+','+lat+','+lon+'););out body geom;'; }
+window._cityLoadOSM=function(lat,lon,radius){
+  lat=(lat!=null)?lat:40.7128; lon=(lon!=null)?lon:-74.0090; radius=radius||250;   // default: Lower Manhattan
+  if(typeof announce==='function') announce('FETCHING MAP…','#39ffc9');
+  const url='https://overpass-api.de/api/interpreter?data='+encodeURIComponent(_cityOverpass(lat,lon,radius));
+  fetch(url).then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); }).then(data=>{
+    const foot=[];
+    for(const el of (data.elements||[])){
+      if(el.type==='way' && el.geometry && el.geometry.length>2){
+        const t=el.tags||{};
+        foot.push({ pts: el.geometry.map(g=>[g.lat,g.lon]),
+                    levels: t['building:levels']?parseInt(t['building:levels']):null,
+                    height: t.height?parseFloat(t.height):null });
+      }
+    }
+    if(!foot.length){ if(typeof announce==='function')announce('NO BUILDINGS HERE — TRY ELSEWHERE','#ff6666'); return; }
+    const MAX=IS_MOBILE?30:80; if(foot.length>MAX){ foot.sort(()=>Math.random()-0.5); foot.length=MAX; }
+    _disposeCityTest(); _cityBoxes=[];
+    const built=_cityBuildFromFootprints(foot,'neon');
+    _cityAddProps(); if(typeof _cityMakeTestUI==='function')_cityMakeTestUI();
+    if(typeof announce==='function')announce('MAP CITY · '+built+' BLDG','#39ffc9');
+  }).catch(e=>{ console.warn('OSM fetch failed:',e); if(typeof announce==='function')announce('NO LIVE WEB — USING SAMPLE','#ffaa33'); _cityBuildSampleMap(); });
+};
+window._cityGoto=function(){
+  const cur=(window._cityMapLat!=null?window._cityMapLat:40.7128)+','+(window._cityMapLon!=null?window._cityMapLon:-74.0090);
+  const v=(typeof prompt!=='undefined')?prompt('Map location — lat,lon  (blank = Lower Manhattan)', cur):cur;
+  if(v){ const a=v.split(',').map(parseFloat); if(isFinite(a[0])&&isFinite(a[1])){ window._cityMapLat=a[0]; window._cityMapLon=a[1]; } }
+  window._cityMode='map'; if(typeof startGameAtLevel==='function') startGameAtLevel(-16);
+};
 let _cityFpsEMA=60, _cityFpsT=0;
 function _cityRemoveTestUI(){ if(typeof document==='undefined') return; const e=document.getElementById('city-test-ui'); if(e) e.remove(); }
 function _cityMakeTestUI(){
@@ -17934,8 +18025,8 @@ function buildSoundRoom(){
   const pa=new THREE.BufferAttribute(pos,3); pa.setUsage(THREE.DynamicDrawUsage);
   const ca=new THREE.BufferAttribute(col,3); ca.setUsage(THREE.DynamicDrawUsage);
   geo.setAttribute('position',pa); geo.setAttribute('color',ca);
-  const mat=new THREE.LineBasicMaterial({vertexColors:true,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:false});
-  const mesh=new THREE.LineSegments(geo,mat); mesh.frustumCulled=false; mesh.renderOrder=6;
+  const mat=new THREE.LineBasicMaterial({vertexColors:true,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:true});
+  const mesh=new THREE.LineSegments(geo,mat); mesh.frustumCulled=false;
   const grp=new THREE.Group(); grp.position.set(0,56,-34); grp.scale.setScalar(0.045); grp.add(mesh); scene.add(grp);
   _soundViz={grp,mesh,geo,mat,pos,col,pa,ca,rv:new Float32Array(NR),targetJump:1,prevSum:0,rotCounter:0,frame:0,NR,SPK,RLO,RHI};
   if(typeof announce==='function') announce('\u266a SOUND REACTIVE','#33ddff');
@@ -17965,9 +18056,10 @@ function updateSoundRoom(dt){
         const lx=BASE + (reverse? -rvi : rvi)*DIST + OVER*(i+1), ly=OVER*(i+1);
         const h=(reverse? rv[NR-1-i]/2 : rvi)*0.5;
         const a0x=lx-h,a0y=ly-h, a1x=lx+h,a1y=ly-h, a2x=lx+h,a2y=ly+h, a3x=lx-h,a3y=ly+h;
+        const zd=-i*8 + rvi*3;   // shallow depth (reads almost 2D, like a portal) + small reactive pop
         p=_emitSq(pos,p,
-          a0x*ac-a0y*as,a0x*as+a0y*ac,0, a1x*ac-a1y*as,a1x*as+a1y*ac,0,
-          a2x*ac-a2y*as,a2x*as+a2y*ac,0, a3x*ac-a3y*as,a3x*as+a3y*ac,0);
+          a0x*ac-a0y*as,a0x*as+a0y*ac,zd, a1x*ac-a1y*as,a1x*as+a1y*ac,zd,
+          a2x*ac-a2y*as,a2x*as+a2y*ac,zd, a3x*ac-a3y*as,a3x*as+a3y*ac,zd);
         const g=Math.min(255,rvi*DIST/3)/255;
         let cr,cg,cb; if(i<17){ if(i%2===0){cr=0;cg=g;cb=1;} else {cr=g;cg=0;cb=1;} } else {cr=0;cg=0;cb=1;}
         c=_emitSqC(col,c,cr,cg,cb);
@@ -17990,7 +18082,6 @@ function updateSoundRoom(dt){
     }
   }
   v.pa.needsUpdate=true; v.ca.needsUpdate=true;
-  if(typeof camera!=='undefined') v.grp.quaternion.copy(camera.quaternion);     // billboard toward the viewer
 }
 function _disposeSoundRoom(){
   const v=_soundViz; if(!v) return;
@@ -18004,6 +18095,7 @@ function buildCityTest(){
   _glGravOn=false; _cgBox=null; if(player) player._inPlanetGravity=false;
   if(typeof MP!=='undefined' && MP.active && !MP.isHost){ try{ mpSend('event',{event:'city_req'}); }catch(e){} if(typeof _cityMakeTestUI==='function') _cityMakeTestUI(); return; }   // client: request & mirror the host layout
   const cell=30, pal='neon', mode=(typeof window!=='undefined' && window._cityMode)||'random';
+  if(mode==='map'){ if(typeof window._cityLoadOSM==='function') window._cityLoadOSM(window._cityMapLat,window._cityMapLon,window._cityMapRadius); return; }
   if(mode==='grid'){
     // MAP-STYLE LAYOUT: a street grid of varied buildings. Footprint-array driven, so OSM/hand-authored data can
     // feed the same path later. Denser than the sandbox on purpose — this is the performance / asset-port test.
@@ -19599,6 +19691,7 @@ try{ init(); requestAnimationFrame(loop); }catch(e){ console.error('Init failed:
 <button id="dbg-arena" style="position:fixed;bottom:0;right:108px;background:#ffaa3322;border:1px solid #ffaa3366;color:#ffaa33;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">ARENA</button>
 <button id="dbg-box" style="position:fixed;bottom:0;right:164px;background:#33ddff22;border:1px solid #33ddff66;color:#33ddff;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">BOX</button>
 <button id="dbg-droid" style="position:fixed;bottom:0;right:216px;background:#ff772222;border:1px solid #ff772266;color:#ff8844;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">+DROID</button>
+<button id="dbg-ghost" style="position:fixed;bottom:0;right:272px;background:#33ffcc22;border:1px solid #33ffcc66;color:#33ffcc;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">+GHOST</button>
 <button id="gl-build" onclick="window._gridLabBuild&&window._gridLabBuild()" style="display:none;position:fixed;bottom:64px;left:50%;transform:translateX(-92px);background:#33ddff22;border:1px solid #33ddff99;color:#33ddff;font:12px monospace;padding:9px 16px;z-index:100000;border-radius:8px;">BUILD ⟳</button>
 <button id="gl-shape" onclick="window._gridLabShape&&window._gridLabShape()" style="display:none;position:fixed;bottom:64px;left:50%;transform:translateX(8px);background:#33ddff22;border:1px solid #33ddff99;color:#33ddff;font:12px monospace;padding:9px 16px;z-index:100000;border-radius:8px;">SHAPE ▷</button>
 <script>
@@ -19619,6 +19712,8 @@ try{ init(); requestAnimationFrame(loop); }catch(e){ console.error('Init failed:
   if(boxBtn) boxBtn.addEventListener('click',()=>{ if(window._toggleTestBox) window._toggleTestBox(); });
   const droidBtn=document.getElementById('dbg-droid');
   if(droidBtn) droidBtn.addEventListener('click',()=>{ if(window._spawnDroids) window._spawnDroids(2); });
+  const ghostBtn=document.getElementById('dbg-ghost');
+  if(ghostBtn) ghostBtn.addEventListener('click',()=>{ if(window._spawnGhosts) window._spawnGhosts(5); });
   const MAX=60;
   const lines=[];
   function addLine(type,args){
