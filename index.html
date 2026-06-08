@@ -6129,7 +6129,7 @@ class Grenade{
   detonate(){
     this.dead=true;
     const BLAST_R=72, BR2=BLAST_R*BLAST_R;
-    if(typeof ps!=='undefined'){ ps.burst(this.wx,this.wz,[1,0.85,0.3],24,150,this.y); ps.burst(this.wx,this.wz,[0.7,0.95,0.35],16,115,this.y); ps.ring(this.wx,this.wz,[0.8,1,0.3],16,150); ps.ring(this.wx,this.wz,[1,1,1],7,105); }
+    { const P=(typeof ps2!=='undefined'&&ps2)?ps2:ps; if(typeof P!=='undefined'){ P.burst(this.wx,this.wz,[1,0.85,0.3],24,150,this.y); P.burst(this.wx,this.wz,[0.7,0.95,0.35],16,115,this.y); P.ring(this.wx,this.wz,[0.8,1,0.3],16,150); P.ring(this.wx,this.wz,[1,1,1],7,105); } }
     if(typeof grid!=='undefined'){ grid.shock(this.wx,this.wz,5); grid.push(this.wx,this.wz,-4,90); }
     if(typeof Audio!=='undefined'){ Audio.blip(95,0.35,'sawtooth',0.32,32); Audio.noise(0.22,0.28,520); }
     if(typeof addTrauma==='function')addTrauma(0.12);
@@ -6714,7 +6714,9 @@ class PlasmaLightning{
     if(this.intensity<0.02 && !active){ this.group.visible=false; this._contact.visible=false; return; }
     this.group.visible=true;
     let ox=pl.wx, oy=9+pl.py, oz=pl.wz;
-    const bones=pl.model&&pl.model.userData&&pl.model.userData.bones, hb=bones&&(bones['mixamorig_RightHand']||bones['mixamorig_LeftHand']);
+    const bones=pl.model&&pl.model.userData&&pl.model.userData.bones;
+    const _useL=(Math.floor(this.t/0.2)%2)===1;
+    const hb=bones&&(_useL?(bones['mixamorig_LeftHand']||bones['mixamorig_RightHand']):(bones['mixamorig_RightHand']||bones['mixamorig_LeftHand']));
     if(hb){ const hp=new THREE.Vector3(); hb.getWorldPosition(hp); ox=hp.x; oy=hp.y; oz=hp.z; }
     const a=pl.aim; let dx=Math.cos(a),dy=0,dz=Math.sin(a);
     if(pl._aim3DActive&&pl._aim3D){ dx=pl._aim3D.x; dy=pl._aim3D.y; dz=pl._aim3D.z; }
@@ -8291,7 +8293,7 @@ class Player{
     const a=this.aim, mag=Math.min(1, this._aimMag||0.5), D=55+mag*180;   // distance scales with how far you push the aim stick
     const g=320, vy=od?205:178, tf=2*vy/g, sh=D/tf;                       // pick speed so it first lands ~D away
     let y0=14+this.py, sx=this.wx, sz=this.wz;
-    const bones=this.model&&this.model.userData&&this.model.userData.bones, hb=bones&&(bones['mixamorig_RightHand']||bones['mixamorig_LeftHand']);
+    this._grenSide=!this._grenSide; const bones=this.model&&this.model.userData&&this.model.userData.bones, hb=bones&&(this._grenSide?(bones['mixamorig_LeftHand']||bones['mixamorig_RightHand']):(bones['mixamorig_RightHand']||bones['mixamorig_LeftHand']));
     if(hb){ const hp=new THREE.Vector3(); hb.getWorldPosition(hp); y0=hp.y; sx=hp.x; sz=hp.z; }
     GS.dropBombs.push(new Grenade(sx,sz,y0, Math.cos(a)*sh, Math.sin(a)*sh, vy));
     if(typeof Audio!=='undefined'){ Audio.blip(68,0.13,'sine',0.32,38); Audio.blip(150,0.05,'square',0.12,90); }   // THUNK
@@ -8729,7 +8731,7 @@ class Gate{
   remove(){ scene.remove(this.mesh); }
 }
 
-let grid,ps,player;
+let grid,ps,ps2,player;
 // ════════════════════════════════════════════════════════════
 //  ALIEN PLANT — procedural fractal fern with sway + collision
 // ════════════════════════════════════════════════════════════
@@ -9515,7 +9517,7 @@ function buildTrainingRoom(){
 
 let GS_gate=null, GS_powerups=[], GS_victoryFX=null, GS_prevArenaGroup=null, GS_plants=[], GS_bots=[];
 function init(){
-  grid=new Grid3D(); ps=new Particles(); player=new Player();
+  grid=new Grid3D(); ps=new Particles(); ps2=new Particles(IS_MOBILE?300:600); ps2.points.material.size=(IS_MOBILE?8:5)*0.5; player=new Player();
   // Global portals — visible in every zone
   if(GS_portals.length===0){
     const [a,b]=TeleportArch.makePair(-340,0,Math.PI/2, 340,0,-Math.PI/2,42);
@@ -12701,7 +12703,7 @@ function loop(ts){ requestAnimationFrame(loop);
 
     _camRestoreTick();
     updateCamera(rawDt);
-    grid.update(dt); ps.update(dt);
+    grid.update(dt); ps.update(dt); if(ps2)ps2.update(dt);
     for(const p of GS_portals) p.update(dt,player);
     // Tick robot animation mixer
     if(player&&player._mixer){
@@ -17849,8 +17851,8 @@ function _attachBoot(boot,foot,toe){
   const desired=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right,up2,fwd));
   const bq=new THREE.Quaternion(); foot.getWorldQuaternion(bq);
   boot.quaternion.copy(bq.clone().invert().multiply(desired));                    // local correction -> upright now, follows the bone after
-  const bs=new THREE.Vector3(); foot.getWorldScale(bs); const inv=1/(bs.x||1);
-  boot.userData.invScale=inv; boot.userData.grow=0; boot.scale.setScalar(0.001);
+  const bs=new THREE.Vector3(); foot.getWorldScale(bs); const inv=(1/(bs.x||1))*1.6;
+  boot.userData.invScale=inv; boot.userData.grow=0; boot.scale.setScalar(inv*0.05);
   boot.position.set(0,0,0);
   foot.add(boot);
   (player._boots=player._boots||[]).push(boot);
@@ -17858,19 +17860,19 @@ function _attachBoot(boot,foot,toe){
 function _collectBoots(){
   const st=window._bootStation; if(!st||st.collected) return; st.collected=true;
   const bones=player&&player.model&&player.model.userData&&player.model.userData.bones;
+  let nAttached=0;
   if(bones){
-    const RF=bones['mixamorig_RightFoot']||bones['mixamorig_RightToeBase']||bones['RightFoot'];
-    const LF=bones['mixamorig_LeftFoot'] ||bones['mixamorig_LeftToeBase'] ||bones['LeftFoot'];
-    const RT=bones['mixamorig_RightToeBase']||bones['RightToeBase'];
-    const LT=bones['mixamorig_LeftToeBase'] ||bones['LeftToeBase'];
-    if(RF) _attachBoot(_makeRoboBoot(1),RF,RT);
-    if(LF) _attachBoot(_makeRoboBoot(-1),LF,LT);
-    player._hasBoots=true; player._speedBoost=Math.max(player._speedBoost||0,99999);   // test: lasting speed buff
+    const find=(sd,kd)=>{ const ex='mixamorig_'+sd+kd; if(bones[ex])return bones[ex]; const ss=sd.toLowerCase(),kk=kd.toLowerCase(); for(const key in bones){ const lk=key.toLowerCase(); if(lk.indexOf(kk)>=0&&lk.indexOf(ss)>=0)return bones[key]; } return null; };
+    const RF=find('Right','Foot'), LF=find('Left','Foot'), RT=find('Right','ToeBase')||find('Right','Toe'), LT=find('Left','ToeBase')||find('Left','Toe');
+    if(RF){ _attachBoot(_makeRoboBoot(1),RF,RT); nAttached++; }
+    if(LF){ _attachBoot(_makeRoboBoot(-1),LF,LT); nAttached++; }
+    player._hasBoots=true; player._speedBoost=Math.max(player._speedBoost||0,99999);
+    try{ console.log('BOOT foot/toe bones:', Object.keys(bones).filter(k=>/foot|toe/i.test(k)), 'attached',nAttached); }catch(e){}
   }
   if(typeof ps!=='undefined'){ ps.burst(player.wx,player.wz,[0,1,0.7],34,170); ps.ring(player.wx,player.wz,[0,1,0.7],22,150); ps.ring(player.wx,player.wz,[0.6,1,1],12,90); }
   if(typeof Audio!=='undefined'){ Audio.blip(320,0.12,'square',0.25,1200); Audio.blip(640,0.2,'sine',0.22,40); Audio.blip(180,0.25,'sawtooth',0.18,60); }
   if(typeof addTrauma==='function') addTrauma(0.15);
-  if(typeof announce==='function') announce('\u26a1 SPEED BOOTS EQUIPPED','#00ffaa');
+  if(typeof announce==='function') announce(nAttached>0?('\u26a1 SPEED BOOTS \u00d7'+nAttached):'NO FOOT BONES FOUND', nAttached>0?'#00ffaa':'#ff5555');
   _removeBootStation();
 }
 function _spawnBootStation(x,z){
