@@ -498,6 +498,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
     <div style="font-family:'Orbitron',sans-serif;font-size:8px;letter-spacing:4px;color:#ffffff33;margin:16px 0 8px;text-align:center">── SANDBOX ──</div>
     <button onclick="window._cityMode='random';startGameAtLevel(-16)" style="width:100%;max-width:360px;margin:0 auto;display:block;padding:13px;font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;color:#33ddff;background:rgba(51,221,255,0.06);border:1.5px solid #33ddff55;border-radius:8px;cursor:pointer">CITY TEST — procedural block experiment</button>
     <button onclick="window._cityMode='grid';startGameAtLevel(-16)" style="width:100%;max-width:360px;margin:8px auto 0;display:block;padding:13px;font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;color:#39ffc9;background:rgba(57,255,201,0.06);border:1.5px solid #39ffc955;border-radius:8px;cursor:pointer">CITY MAP — street-grid layout (perf test)</button>
+    <button onclick="startGameAtLevel(-17)" style="width:100%;max-width:360px;margin:8px auto 0;display:block;padding:13px;font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;color:#ff7df0;background:rgba(255,125,240,0.06);border:1.5px solid #ff7df055;border-radius:8px;cursor:pointer">SOUND REACTIVE — music visualizer sandbox</button>
     <button onclick="window._showScreen('character')" style="margin-top:20px;font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:4px;color:#ffffff33;background:none;border:none;cursor:pointer"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:7px"><path d="M15 5 8 12l7 7"/></svg>BACK</button>
   </div>
 
@@ -1073,8 +1074,9 @@ const Audio={
   setIntensity(v){ this.intensity=clamp(v,0,1); this.bpm=118+this.intensity*30; },
   setMult(m){ this._mult=m; },
 
-  startMusic(){ return; // music disabled
+  startMusic(){
     if(!this.on||!this.ctx)return;
+    this.stopMusic();
     this.step=0; this.nextNote=this.ctx.currentTime+0.1;
     const tick=()=>{
       if(!this.ctx)return;
@@ -8509,6 +8511,7 @@ function getZoneDef(z){
   if(z===-15) return {name:'GRID LAB',subtitle:'Construct Sandbox',color:0x33ddff,glowCol:[0.2,0.85,1],waves:0,enemies:[],special:'none',desc:'Build assets out of the grid plane'};
   if(z===-11) return {name:'ASSET ROOM',subtitle:'Showcase & Test Gallery',color:0x88ff66,glowCol:[0.53,1,0.4],waves:0,enemies:[],special:'none',desc:'One of every asset — shoot, test, iterate'};
   if(z===-16) return {name:'CITY TEST',subtitle:'Procedural Block Sandbox',color:0x33ddff,glowCol:[0.2,0.85,1],waves:0,enemies:[],special:'none',desc:'A city block with the full stack — drive, fly, shoot'};
+  if(z===-17) return {name:'SOUND REACTIVE',subtitle:'Music Visualizer Sandbox',color:0xff7df0,glowCol:[1,0.49,0.94],waves:0,enemies:[],special:'none',desc:'A torus and flowing arms that dance to the soundtrack'};
   return ZONES[Math.min(z,ZONES.length-1)];
 }
 
@@ -9554,6 +9557,7 @@ function startGame(levelIdx){
   if(_spawnBeams&&_spawnBeams.length){ _spawnBeams.forEach(b=>scene.remove(b.grp)); _spawnBeams=[]; }
   if(typeof _disposeGridLab==='function') _disposeGridLab();
   if(typeof _disposeCityTest==='function') _disposeCityTest();
+  if(typeof _disposeSoundRoom==='function') _disposeSoundRoom();
   // tear down any leftover galaxy objects (planets/platforms/indicator) so they don't bleed into other zones
   if(window._galaxyObjects){ window._galaxyObjects.forEach(o=>scene.remove(o)); window._galaxyObjects=[]; }
   window._galaxyPlanets=[]; window._arenaPlatforms=[]; window._dropIndicator=null;
@@ -9586,6 +9590,7 @@ function startGame(levelIdx){
   else if(GS.zone===-12){ player.wx=0; player.wz=170; player.py=0; player.pvy=0; player.vx=0; player.vz=0; }
   else if(GS.zone===-15){ player.wx=0; player.wz=130; player.py=0; player.pvy=0; player.vx=0; player.vz=0; }
   else if(GS.zone===-16){ player.wx=0; player.wz=160; player.py=0; player.pvy=0; player.vx=0; player.vz=0; }
+  else if(GS.zone===-17){ player.wx=0; player.wz=80; player.py=0; player.pvy=0; player.vx=0; player.vz=0; }
   else { player.wx=0; player.wz=0; }
   grid.setZone(GS.zone);
   // Spawn alien plants scattered around the arena
@@ -9639,6 +9644,7 @@ function startGame(levelIdx){
   else if(GS.zone===-14){ buildRopeZone(); }
   else if(GS.zone===-15){ buildGridLab(); }
   else if(GS.zone===-16){ buildCityTest(); }
+  else if(GS.zone===-17){ buildSoundRoom(); }
   else if(GS.zone===0){ if(GS.survival) spawnWave(); else buildZone1Puzzle(); }
   else spawnWave();
   setupSpecialLevel(GS.zone);
@@ -13211,6 +13217,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===-1) updateTutorial(dt);
       if(GS.zone===-5) updateTransition(dt);
       if(GS.zone===-16) updateCityTest(dt);
+      if(GS.zone===-17 && typeof updateSoundRoom==='function') updateSoundRoom(dt);
       player.update(mvx,mvz,avx,avz,dt,firing&&!GS_movingWall&&GS.zone!==-7&&GS.zone!==-10,od,aiming); resolveObstacles(player,13); player.draw(od); if(typeof _updatePlasmaBeam==='function')_updatePlasmaBeam(player,dt); if(typeof _updateGrenadeAim==='function')_updateGrenadeAim(player,dt); if(typeof _updateBoots==='function')_updateBoots(dt);
       if(GS.zone===-16) updateGrindRail(dt);
       { // ── DROP-THROUGH: HOLD the left stick down (a flick = dash) while on a platform ──
@@ -17902,6 +17909,96 @@ function _updateBoots(dt){
     const jet=b.userData.jet; if(jet){ const f=(player._speedBoost>0)?(0.55+Math.random()*0.45):0.0; jet.material.opacity=f; jet.scale.z=0.6+f*0.9; }
   }
 }
+// ════════ SOUND REACTIVE ROOM (zone -17) — port of Colin's p5 spoke-mandala visualizer ════════
+// 12 spokes x 40 squares (two counter-rotating layers) + 3D central rings; a cascading radius chain
+// (radius[0] chases the music, each link eases toward the prior) drives every square's size & color.
+let _soundViz=null;
+const _SVM=new THREE.Matrix4();
+const _SV_RX=new THREE.Matrix4().makeRotationX(Math.PI/2);
+const _SV_RY=new THREE.Matrix4().makeRotationY(Math.PI/2);
+const _sv0=new THREE.Vector3(),_sv1=new THREE.Vector3(),_sv2=new THREE.Vector3(),_sv3=new THREE.Vector3();
+function _emitSq(P,p, x0,y0,z0,x1,y1,z1,x2,y2,z2,x3,y3,z3){
+  P[p++]=x0;P[p++]=y0;P[p++]=z0; P[p++]=x1;P[p++]=y1;P[p++]=z1;
+  P[p++]=x1;P[p++]=y1;P[p++]=z1; P[p++]=x2;P[p++]=y2;P[p++]=z2;
+  P[p++]=x2;P[p++]=y2;P[p++]=z2; P[p++]=x3;P[p++]=y3;P[p++]=z3;
+  P[p++]=x3;P[p++]=y3;P[p++]=z3; P[p++]=x0;P[p++]=y0;P[p++]=z0; return p;
+}
+function _emitSqC(C,c,r,g,b){ for(let k=0;k<8;k++){ C[c++]=r;C[c++]=g;C[c++]=b; } return c; }
+function buildSoundRoom(){
+  _disposeSoundRoom();
+  if(typeof MusicPlayer!=='undefined'){ try{ MusicPlayer.play(); }catch(e){} }
+  const NR=40, SPK=12, RLO=6, RHI=24;
+  const totalSq=2*SPK*NR + (RHI-RLO)*6, VERTS=totalSq*4*2;
+  const pos=new Float32Array(VERTS*3), col=new Float32Array(VERTS*3);
+  const geo=new THREE.BufferGeometry();
+  const pa=new THREE.BufferAttribute(pos,3); pa.setUsage(THREE.DynamicDrawUsage);
+  const ca=new THREE.BufferAttribute(col,3); ca.setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('position',pa); geo.setAttribute('color',ca);
+  const mat=new THREE.LineBasicMaterial({vertexColors:true,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,depthTest:false});
+  const mesh=new THREE.LineSegments(geo,mat); mesh.frustumCulled=false; mesh.renderOrder=6;
+  const grp=new THREE.Group(); grp.position.set(0,56,-34); grp.scale.setScalar(0.045); grp.add(mesh); scene.add(grp);
+  _soundViz={grp,mesh,geo,mat,pos,col,pa,ca,rv:new Float32Array(NR),targetJump:1,prevSum:0,rotCounter:0,frame:0,NR,SPK,RLO,RHI};
+  if(typeof announce==='function') announce('\u266a SOUND REACTIVE','#33ddff');
+}
+function updateSoundRoom(dt){
+  const v=_soundViz; if(!v) return;
+  // ── audio energy -> targetJump (mirror p5: sum of fft bins 6..29, beat = frame-to-frame diff) ──
+  if(typeof _vizLevel==='function') _vizLevel();                              // ensures the analyser exists + fills _vizFFT.data
+  let sum=0; if(typeof _vizFFT!=='undefined' && _vizFFT && _vizFFT.data){ for(let i=6;i<30;i++) sum+=_vizFFT.data[i]; }
+  v.frame++;
+  if(sum>0){ const diff=Math.abs(sum-v.prevSum); v.prevSum=sum; v.targetJump=Math.max(diff/1.5,(sum/24)/10)*1.8; }
+  else { v.targetJump=50+Math.sin(v.frame*0.2)*40; }                          // no analyser yet -> gentle idle pulse
+  // ── cascade: [0] chases targetJump, each link eases toward the prior (RAD_LERP 0.15, FREQ_LERP 0.25) ──
+  const rv=v.rv, NR=v.NR;
+  rv[0]=Math.abs(rv[0]+(v.targetJump-rv[0])*0.15);
+  for(let j=1;j<NR;j++) rv[j]=Math.abs(rv[j]+(rv[j-1]-rv[j])*0.25);
+  v.rotCounter++;
+  const pos=v.pos, col=v.col; let p=0,c=0;
+  const D2R=Math.PI/180, DIST=5, OVER=50, BASE=200, CS=3;
+  // ── spokes: two counter-rotating layers ──
+  for(let layer=0;layer<2;layer++){
+    const reverse=(layer===1), rotSpeed=reverse? -v.rotCounter*0.3 : v.rotCounter*0.5;
+    for(let u=0;u<v.SPK;u++){
+      const ang=(v.rotCounter/3 + rotSpeed + 30*u + 90)*D2R, ac=Math.cos(ang), as=Math.sin(ang);
+      for(let i=0;i<NR;i++){
+        const rvi=rv[i];
+        const lx=BASE + (reverse? -rvi : rvi)*DIST + OVER*(i+1), ly=OVER*(i+1);
+        const h=(reverse? rv[NR-1-i]/2 : rvi)*0.5;
+        const a0x=lx-h,a0y=ly-h, a1x=lx+h,a1y=ly-h, a2x=lx+h,a2y=ly+h, a3x=lx-h,a3y=ly+h;
+        p=_emitSq(pos,p,
+          a0x*ac-a0y*as,a0x*as+a0y*ac,0, a1x*ac-a1y*as,a1x*as+a1y*ac,0,
+          a2x*ac-a2y*as,a2x*as+a2y*ac,0, a3x*ac-a3y*as,a3x*as+a3y*ac,0);
+        const g=Math.min(255,rvi*DIST/3)/255;
+        let cr,cg,cb; if(i<17){ if(i%2===0){cr=0;cg=g;cb=1;} else {cr=g;cg=0;cb=1;} } else {cr=0;cg=0;cb=1;}
+        c=_emitSqC(col,c,cr,cg,cb);
+      }
+    }
+  }
+  // ── central rings (3D tunnel of squares) ──
+  const phiBase=(v.rotCounter/3 + v.frame/4)*D2R, divs=[5,6,7,8,1,3], rIdx=[0,1,2,3,4,4];
+  for(let i=v.RLO;i<v.RHI;i++){
+    _SVM.makeRotationZ(phiBase + (20*i)*D2R).multiply(_SV_RX).multiply(_SV_RY);   // Rz(global+ring) * Rx90 * Ry90
+    const ric=Math.min(255,i)/255;
+    for(let e=0;e<6;e++){
+      const rvE=rv[rIdx[e]], h=(e===4? 40*CS : rvE/divs[e]*CS)*0.5, z=-rvE*DIST;
+      _sv0.set(-h,-h,z).applyMatrix4(_SVM); _sv1.set(h,-h,z).applyMatrix4(_SVM);
+      _sv2.set(h,h,z).applyMatrix4(_SVM);  _sv3.set(-h,h,z).applyMatrix4(_SVM);
+      p=_emitSq(pos,p,_sv0.x,_sv0.y,_sv0.z,_sv1.x,_sv1.y,_sv1.z,_sv2.x,_sv2.y,_sv2.z,_sv3.x,_sv3.y,_sv3.z);
+      const g=Math.min(255,rvE*DIST/3)/255;
+      let cr,cg,cb; if(e%2===0){cr=ric;cg=g;cb=1;} else {cr=g;cg=ric;cb=1;}
+      c=_emitSqC(col,c,cr,cg,cb);
+    }
+  }
+  v.pa.needsUpdate=true; v.ca.needsUpdate=true;
+  if(typeof camera!=='undefined') v.grp.quaternion.copy(camera.quaternion);     // billboard toward the viewer
+}
+function _disposeSoundRoom(){
+  const v=_soundViz; if(!v) return;
+  if(v.grp) scene.remove(v.grp);
+  if(v.geo) v.geo.dispose(); if(v.mat) v.mat.dispose();
+  _soundViz=null;
+}
+
 function buildCityTest(){
   _disposeCityTest();
   _glGravOn=false; _cgBox=null; if(player) player._inPlanetGravity=false;
@@ -18924,9 +19021,10 @@ const MusicPlayer={
     if(typeof Audio!=='undefined' && Audio.ctx && window.fetch){
       fetch(url).then(r=>r.arrayBuffer()).then(ab=>Audio.ctx.decodeAudioData(ab))
         .then(buf=>{ this._buf=buf; this._offset=0; this._playBuf(0); })
-        .catch(()=>{ this._loadEl(url); });   // CORS / decode failure -> plain element (no analysis, but music still plays)
+        .catch(()=>{ this._fallbackProcedural(); });   // sandbox / CORS / decode failure -> built-in procedural soundtrack (analysable via musicGain)
     } else this._loadEl(url);
   },
+  _fallbackProcedural(){ try{ if(typeof Audio!=='undefined'){ if(Audio.init)Audio.init(); if(Audio.startMusic){ Audio.startMusic(); window._usingProceduralMusic=true; } } }catch(e){} },
   _gainNode(){ if(!this._gain && Audio.ctx){ this._gain=Audio.ctx.createGain(); this._gain.gain.value=this.muted?0:0.5; this._gain.connect(Audio.master||Audio.ctx.destination); } return this._gain; },
   _playBuf(offset){
     if(!this._buf) return;
