@@ -6885,7 +6885,7 @@ class FlameThrower{
   constructor(){
     this.t=0; this.intensity=0; this._dmgT=0; this._sndT=0;
     const mob=(typeof IS_TOUCH!=='undefined'&&IS_TOUCH);
-    const N=this.N=mob?230:430;
+    const N=this.N=mob?300:560;
     this.px=new Float32Array(N); this.py=new Float32Array(N); this.pz=new Float32Array(N);
     this.vx=new Float32Array(N); this.vy=new Float32Array(N); this.vz=new Float32Array(N);
     this.age=new Float32Array(N); this.life=new Float32Array(N); this.seed=new Float32Array(N); this.sz0=new Float32Array(N);
@@ -6908,9 +6908,11 @@ class FlameThrower{
     this.geo=geo; this.mat=mat;
     this.flareMat=new THREE.MeshBasicMaterial({color:0xffd27a,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false});
     this.flare=new THREE.Mesh(new THREE.SphereGeometry(1,10,8),this.flareMat); this.flare.frustumCulled=false; scene.add(this.flare);
+    this.flare2=new THREE.Mesh(new THREE.SphereGeometry(1,10,8),this.flareMat); this.flare2.frustumCulled=false; this.flare2.visible=false; scene.add(this.flare2);
     this.light=new THREE.PointLight(0xff6a1a,0,300,2); scene.add(this.light);
   }
   _origin(pl){ let ox=pl.wx, oy=9+pl.py, oz=pl.wz; const bn=pl.model&&pl.model.userData&&pl.model.userData.bones; const hb=bn&&(bn['mixamorig_RightHand']||bn['mixamorig_LeftHand']); if(hb){ const hp=new THREE.Vector3(); hb.getWorldPosition(hp); ox=hp.x; oy=hp.y; oz=hp.z; } return [ox,oy,oz]; }
+  _origins(pl){ const bn=pl.model&&pl.model.userData&&pl.model.userData.bones; const out=[]; const rb=bn&&bn['mixamorig_RightHand'], lb=bn&&bn['mixamorig_LeftHand']; if(rb){ const v=new THREE.Vector3(); rb.getWorldPosition(v); out.push([v.x,v.y,v.z]); } if(lb){ const v=new THREE.Vector3(); lb.getWorldPosition(v); out.push([v.x,v.y,v.z]); } if(out.length===0) out.push([pl.wx,9+pl.py,pl.wz]); return out; }
   _dir(pl){ const a=pl.aim; let dx=Math.cos(a),dy=0,dz=Math.sin(a);
     if(pl._aim3DActive&&pl._aim3D){ dx=pl._aim3D.x; dy=pl._aim3D.y; dz=pl._aim3D.z; }
     else if(pl._inPlanetGravity&&typeof _gN!=='undefined'){ const f=new THREE.Vector3(Math.cos(a),0,Math.sin(a)); f.addScaledVector(_gN,-f.dot(_gN)); if(f.lengthSq()>1e-4){ f.normalize(); dx=f.x;dy=f.y;dz=f.z; } }
@@ -6919,20 +6921,21 @@ class FlameThrower{
     this.t+=dt; if(dt>0.05)dt=0.05;
     const active=(pl.primaryWeapon==='flamethrower')&&!!pl._flameWantFire, od=!!pl._flameOD;
     this.intensity += ((active?1:0)-this.intensity)*Math.min(1,dt*(active?12:6));
-    const o=this._origin(pl), ox=o[0],oy=o[1],oz=o[2]; const dir=this._dir(pl);
+    const origins=this._origins(pl); const o0=origins[0], ox=o0[0],oy=o0[1],oz=o0[2]; const dir=this._dir(pl);
     const up=Math.abs(dir.y)>0.9?new THREE.Vector3(1,0,0):new THREE.Vector3(0,1,0);
     const rt=new THREE.Vector3().crossVectors(dir,up).normalize();
     const uv=new THREE.Vector3().crossVectors(rt,dir).normalize();
     if(active){
-      let emit=(od?2.0:1.0)*this.N*2.3*dt; if(emit>this.N*0.5)emit=this.N*0.5;
+      let emit=(od?2.0:1.0)*this.N*2.6*dt; if(emit>this.N*0.6)emit=this.N*0.6;
       let whole=Math.floor(emit); if(Math.random()<(emit-whole))whole++;
       for(let k=0;k<whole;k++){ const i=this._cursor; this._cursor=(this._cursor+1)%this.N;
-        const ang=Math.random()*Math.PI*2, r=Math.pow(Math.random(),0.7)*0.20, sp=(300+Math.random()*240)*(od?1.25:1);
+        const oo=origins[k%origins.length];
+        const ang=Math.random()*Math.PI*2, r=Math.pow(Math.random(),0.7)*0.30, sp=(300+Math.random()*240)*(od?1.25:1);
         const sd=dir.clone().addScaledVector(rt,Math.sin(ang)*r).addScaledVector(uv,Math.cos(ang)*r).normalize();
-        const j=3.0;
-        this.px[i]=ox+rt.x*rand(-j,j)+uv.x*rand(-j,j); this.py[i]=oy+rt.y*rand(-j,j)+uv.y*rand(-j,j); this.pz[i]=oz+rt.z*rand(-j,j)+uv.z*rand(-j,j);
+        const j=3.4;
+        this.px[i]=oo[0]+rt.x*rand(-j,j)+uv.x*rand(-j,j); this.py[i]=oo[1]+rt.y*rand(-j,j)+uv.y*rand(-j,j); this.pz[i]=oo[2]+rt.z*rand(-j,j)+uv.z*rand(-j,j);
         this.vx[i]=sd.x*sp; this.vy[i]=sd.y*sp; this.vz[i]=sd.z*sp;
-        this.age[i]=0; this.life[i]=0.45+Math.random()*0.42; this.seed[i]=Math.random()*100; this.sz0[i]=(7+Math.random()*7)*(od?1.3:1);
+        this.age[i]=0; this.life[i]=0.45+Math.random()*0.42; this.seed[i]=Math.random()*100; this.sz0[i]=(10+Math.random()*9)*(od?1.3:1);
       }
     }
     const N=this.N; let live=0; const DRAG=2.4, BUOY=120, tt=this.t*1.6;
@@ -6957,7 +6960,7 @@ class FlameThrower{
     }
     this.geo.setDrawRange(0,live); this._pa.needsUpdate=this._ca.needsUpdate=this._sa.needsUpdate=this._aa.needsUpdate=true;
     this.points.visible=(this.intensity>0.02)||live>0;
-    this.flare.position.set(ox+dir.x*6,oy+dir.y*6,oz+dir.z*6); this.flare.scale.setScalar((6+4*Math.sin(this.t*33))*(od?1.4:1)*Math.max(0.1,this.intensity)); this.flareMat.opacity=0.7*this.intensity;
+{ const fsc=(6+4*Math.sin(this.t*33))*(od?1.4:1)*Math.max(0.1,this.intensity); this.flare.position.set(ox+dir.x*6,oy+dir.y*6,oz+dir.z*6); this.flare.scale.setScalar(fsc); this.flareMat.opacity=0.7*this.intensity; if(this.flare2){ if(origins[1]){ this.flare2.visible=true; this.flare2.position.set(origins[1][0]+dir.x*6,origins[1][1]+dir.y*6,origins[1][2]+dir.z*6); this.flare2.scale.setScalar(fsc); } else this.flare2.visible=false; } }
     if(this.light){ this.light.position.set(ox+dir.x*40,oy+dir.y*40+10,oz+dir.z*40); this.light.intensity=(active||this.intensity>0.05)?(2.2+1.4*Math.sin(this.t*37))*this.intensity:0; this.light.color.setRGB(1,0.42+0.12*Math.sin(this.t*50),0.1); }
     this._dmgT-=dt; const dtick=this._dmgT<=0; if(dtick)this._dmgT=0.1;
     const RANGE=(od?260:200), cosH=Math.cos(0.42);
@@ -6968,6 +6971,8 @@ class FlameThrower{
         if(typeof ps!=='undefined'&&Math.random()<0.5)ps.spark(e.wx+rand(-6,6),e.wz+rand(-6,6),[1,0.55,0.12],ey+rand(2,14));
         if(pts>0||!e.alive){ GS.score+=((pts||e.score||0))*GS.mult; if(typeof Gem3D!=='undefined')GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); if(e.remove)e.remove(); GS.enemies.splice(i,1); if(typeof registerKill==='function')registerKill(e); } } }
     if(active){ this._sndT-=dt; if(this._sndT<=0){ this._sndT=0.09; if(typeof Audio!=='undefined')Audio.blip(90+rand(-20,30),0.14,'sawtooth',0.12,40); } }
+    // visible "on fire" plume on any burning enemy -- persists a beat after the stream stops
+    if(typeof ps!=='undefined'&&GS&&GS.enemies){ for(let i=0;i<GS.enemies.length;i++){ const e=GS.enemies[i]; if(!e||!e.alive||!(e._burnT>0))continue; const ey=(e.mesh?e.mesh.position.y:9), sz=(e.size||10); const n=1+(Math.random()<0.6?1:0); for(let q=0;q<n;q++) ps.spark(e.wx+rand(-sz*0.6,sz*0.6), e.wz+rand(-sz*0.6,sz*0.6), [1,0.4+Math.random()*0.35,0.06], ey+rand(0,sz*1.8)); } }
   }
 }
 function _updateFlame(pl,dt){ if(!pl) return;
@@ -13373,7 +13378,6 @@ function loop(ts){ requestAnimationFrame(loop);
       if(scene._robotLight) scene._robotLight.position.set(player.wx,player.py+20,player.wz);
       let spd=Math.hypot(player.vx,player.vz);
       player._mixer.update(dt);
-      if(player._reorientBootsT>0){ player._reorientBootsT--; if(window._reorientGameBoots) window._reorientGameBoots(); }
 
       // ── Procedural arm IK — runs after mixer so it overrides bone rotations ──
       const ud2=player.model.userData;
@@ -18251,13 +18255,12 @@ function updateGrindRail(dt){
     const leanInput=IS_TOUCH?moveIn.x:(keys['KeyA']||keys['ArrowLeft']?-1:keys['KeyD']||keys['ArrowRight']?1:0);
     gr.lean=(gr.lean||0)*0.85+leanInput*0.15;
     gr.lean=clamp(gr.lean,-1,1);
-    if(player.model) player.model.rotation.z=gr.lean*0.3;
 
     // ── JUMP = flip off rail ──
     if(player._jumpTapped){
       const tan=curve.getTangent(clamp(gr.t,0,1));
       const dir=gr.speed>=0?1:-1;
-      if(player.model) player.model.rotation.z=0;
+      if(player.model){ player.model.rotation.set(0, player.model.rotation.y, 0); }
       player._dashDir=[tan.x*dir,tan.z*dir];
       player._dashRamp=10; player._dashRampMax=10; player._dashPeak=300;
       player.pvy=320;
@@ -18279,7 +18282,7 @@ function updateGrindRail(dt){
       gr.t=clamp(gr.t,0,1);
       const tan=curve.getTangent(gr.t);
       const dir=gr.t>=1?1:-1;
-      if(player.model) player.model.rotation.z=0;
+      if(player.model){ player.model.rotation.set(0, player.model.rotation.y, 0); }
       player._dashDir=[tan.x*dir,tan.z*dir];
       player._dashRamp=14; player._dashRampMax=14; player._dashPeak=550;
       player.pvy=60;
@@ -18298,6 +18301,21 @@ function updateGrindRail(dt){
     player.wz=lerp(player.wz,targetZ,Math.min(1,snapSpeed*dt));
     player.vx=0; player.vz=0; player.pvy=0;
     player._onPlatform=false;
+
+    // ── ORIENT TO RAIL FRAME: up vector follows the rail, so a loop carries the player around (upside-down at the top) ──
+    { const fr=gr.rail&&gr.rail.frame; let up,tan;
+      if(fr){ const fi=Math.max(0,Math.min(fr.n,Math.round(gr.t*fr.n))); up=fr.U[fi].clone(); tan=fr.T[fi].clone(); }
+      else { tan=curve.getTangent(clamp(gr.t,0,1)); up=new THREE.Vector3(0,1,0); }
+      const dir=gr.speed>=0?1:-1; const fwd=tan.multiplyScalar(dir); if(fwd.lengthSq()<1e-6)fwd.set(0,0,1); fwd.normalize();
+      let right=new THREE.Vector3().crossVectors(up,fwd); if(right.lengthSq()<1e-6)right.set(1,0,0); right.normalize();
+      const up2=new THREE.Vector3().crossVectors(fwd,right).normalize();
+      if(player.model&&player.model.userData&&player.model.userData.isRobot){
+        const q=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right,up2,fwd));
+        q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),(gr.lean||0)*0.3));   // lean folded in as roll
+        player.model.quaternion.slerp(q, 0.5);
+        player.model.position.set(pos.x+up2.x*2, pos.y+up2.y*2, pos.z+up2.z*2);   // ride just above the rail along the rail's up
+      }
+    }
 
     const railY=pos.y;
     if(Math.random()<0.8) ps.spark(player.wx,player.wz,[0,1,0.8]);
@@ -18370,13 +18388,31 @@ function tryInteractWall(){
 }
 let _cityBoxes=[];
 let _cityProps={powerups:[],arches:[],railGroup:null};
+function _railFrame(curve, n){
+  // Parallel-transport frame seeded with world-up. On gentle curves the up stays ~vertical;
+  // on a full vertical loop it rotates 360° with the tangent -> rider goes upside-down at the top.
+  const T=[], U=[];
+  for(let i=0;i<=n;i++) T.push(curve.getTangent(i/n).normalize());
+  let up=new THREE.Vector3(0,1,0); up.addScaledVector(T[0], -T[0].dot(up));
+  if(up.lengthSq()<1e-5){ up.set(1,0,0); up.addScaledVector(T[0], -T[0].dot(up)); }
+  up.normalize(); U.push(up.clone());
+  const axis=new THREE.Vector3();
+  for(let i=1;i<=n;i++){
+    const t0=T[i-1], t1=T[i]; axis.crossVectors(t0,t1); const s=axis.length(), c=Math.max(-1,Math.min(1,t0.dot(t1)));
+    let u=U[i-1].clone();
+    if(s>1e-6){ axis.multiplyScalar(1/s); u.applyAxisAngle(axis, Math.atan2(s,c)); }
+    u.addScaledVector(t1, -u.dot(t1)); if(u.lengthSq()<1e-6) u.copy(U[i-1]); u.normalize();
+    U.push(u);
+  }
+  return {T, U, n};
+}
 function _cityAddRail(pts){
   if(!pts||pts.length<2||typeof scene==='undefined') return null;
   const curve=new THREE.CatmullRomCurve3(pts);
   const N=Math.max(80, pts.length*14), samples=[];
   for(let gi=0;gi<=N;gi++) samples.push({t:gi/N, p:curve.getPoint(gi/N)});
   if(!window._grindRails) window._grindRails=[];
-  window._grindRails.push({curve, samples});
+  window._grindRails.push({curve, samples, frame:_railFrame(curve, N)});
   const grp=new THREE.Group();
   grp.add(new THREE.Mesh(new THREE.TubeGeometry(curve, Math.max(80,pts.length*16), 2, 8, false), new THREE.MeshBasicMaterial({color:0x00ffcc,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false})));
   grp.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(Math.max(120,pts.length*18))), new THREE.LineBasicMaterial({color:0x00ffff,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false})));
@@ -18419,6 +18455,16 @@ function _cityAddProps(){
         new THREE.Vector3(tall.x, topY+10, tall.z),
         new THREE.Vector3((tall.x+b2.x)/2, Math.max(topY,b2.top)+64, (tall.z+b2.z)/2),
         new THREE.Vector3(b2.x, b2.top+10, b2.z)
+      ]);
+    }
+    // a few more rooftop-to-rooftop hops, chained across the tallest buildings (arced high to clear roofs)
+    for(let ri=0; ri+1<Math.min(others.length,4); ri++){
+      const a=others[ri], b=others[ri+1];
+      if(Math.hypot(a.x-b.x, a.z-b.z) > 760) continue;   // skip absurd spans
+      _cityAddRail([
+        new THREE.Vector3(a.x, a.top+10, a.z),
+        new THREE.Vector3((a.x+b.x)/2, Math.max(a.top,b.top)+54, (a.z+b.z)/2),
+        new THREE.Vector3(b.x, b.top+10, b.z)
       ]);
     }
     // (2) roller-coaster descent: off the roof, out into the open, a vertical loop, down to the street
@@ -18749,7 +18795,8 @@ function _attachBoot(boot,foot,toe,side){
   foot.add(boot);
   _orientGameBoot(boot,foot,side);
   (player._boots=player._boots||[]).push(boot);
-  if(player) player._reorientBootsT=8;   // re-orient for the next few frames AFTER the mixer poses the bones (fixes stale-pose attach)
+  // Re-orient between frames (when the foot is FULLY posed by mixer+blend) -- same moment a manual flip/reset works
+  [60,160,320,600,1000].forEach(ms=>setTimeout(()=>{ if(window._reorientGameBoots) window._reorientGameBoots(); }, ms));
 }
 window._reorientGameBoots=function(){ if(player&&player._boots) for(const b of player._boots) _orientGameBoot(b,b._foot,b._side); };
 window._bootTune={ side:'R',
