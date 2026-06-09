@@ -13703,16 +13703,16 @@ function loop(ts){ requestAnimationFrame(loop);
           // Apply .bomb/.shoot variants (combat zones only — skate has no weapon poses)
           if(!_skateAnim){
             const bombArmed=player.bombArmed;
-            const bombClip=targetClip.replace('.shoot','')+'.bomb';
+            const bombClip=targetClip.replace('_shoot','')+'_bomb';
             if(bombArmed&&ud.clips[bombClip]) targetClip=bombClip;
             else {
-              const shootClip=targetClip+'.shoot';
+              const shootClip=targetClip+'_shoot';
               if((firing||wallPushing)&&ud.clips[shootClip]) targetClip=shootClip;
             }
           }
 
           // Fallback: strip suffixes if clip missing
-          if(!ud.clips[targetClip]) targetClip=targetClip.replace('.bomb','').replace('.shoot','');
+          if(!ud.clips[targetClip]) targetClip=targetClip.replace('_bomb','').replace('_shoot','');
           if(!ud.clips[targetClip]) targetClip='idle';
 
           if(window._animTest && ud.clips[window._animTest]) targetClip=window._animTest;   // DEBUG anim-test: force-play a clip to verify it loaded
@@ -14038,11 +14038,11 @@ function loop(ts){ requestAnimationFrame(loop);
           const dx=rp.state.x-(rp._prevX||rp.state.x);
           const dz=rp.state.z-(rp._prevZ||rp.state.z);
           const moving=Math.hypot(dx,dz)>0.5;
-          let base=(rp.state.clip||'').replace('.bomb','').replace('.shoot','');
+          let base=(rp.state.clip||'').replace('_bomb','').replace('_shoot','');
           if(!base||!rp._clips[base]) base=moving?'run_forward':'idle';
           let want=base;
-          if(rp.state.firing&&rp._clips[base+'.shoot']) want=base+'.shoot';
-          else if(rp.state.bombArmed&&rp._clips[base+'.bomb']) want=base+'.bomb';
+          if(rp.state.firing&&rp._clips[base+'_shoot']) want=base+'_shoot';
+          else if(rp.state.bombArmed&&rp._clips[base+'_bomb']) want=base+'_bomb';
           if(want!==rp._clips._current&&rp._clips[want]){
             Object.values(rp._clips).forEach(a=>{ if(typeof a.fadeOut==='function') a.fadeOut(0.15); });
             rp._clips[want].reset().setEffectiveWeight(1).fadeIn(0.15).play();
@@ -20686,7 +20686,7 @@ window._showScreen=function(name){
     renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1)); renderer.setSize(cw,ch,false); renderer.outputColorSpace=THREE.SRGBColorSpace;
     const scn=new THREE.Scene();
     const cam=new THREE.PerspectiveCamera(42,cw/ch,0.1,100); cam.position.set(0,0,6.4); cam.lookAt(0,0,0);
-    function _applyCam(){ cam.position.set(0,0,S.camDist||6.4); cam.lookAt(0,0,0); }
+    function _applyCam(){ const ly=S.lookY||0; cam.position.set(0,ly,S.camDist||6.4); cam.lookAt(0,ly,0); }
     scn.add(new THREE.AmbientLight(0x6688ff,0.95));
     const kl=new THREE.DirectionalLight(0x00ffc8,1.5); kl.position.set(2,3,3); scn.add(kl);
     const rl=new THREE.DirectionalLight(0xaa55ff,0.8); rl.position.set(-3,1,-2); scn.add(rl);
@@ -20700,7 +20700,19 @@ window._showScreen=function(name){
       model.traverse(c=>{ if((c.isSkinnedMesh||c.isMesh)&&c.material){ c.frustumCulled=false; try{ c.material.emissive=new THREE.Color(0x0044aa); c.material.emissiveIntensity=1.4; c.material.needsUpdate=true; }catch(e){} } });
       turn.add(model); S.model=model;
       turn.updateWorldMatrix(true,true);
-      { const wb=new THREE.Box3().setFromObject(model); if(isFinite(wb.min.y)&&wb.max.y>wb.min.y){ const wc=wb.getCenter(new THREE.Vector3()), wsz=wb.getSize(new THREE.Vector3()); model.position.sub(wc); const fitH=Math.max(wsz.y, wsz.x*0.9); S.fitDist=(fitH*0.5)/Math.tan(42*Math.PI/360)*1.35; } else { S.fitDist=6.0; } S.camDist=S.fitDist; _applyCam(); }
+      { let wb=new THREE.Box3().setFromObject(model);
+        if(isFinite(wb.min.y)&&wb.max.y>wb.min.y){
+          const wc=wb.getCenter(new THREE.Vector3());
+          model.position.sub(wc); turn.updateWorldMatrix(true,true);
+          wb=new THREE.Box3().setFromObject(model);                 // re-measure after centering
+          const wsz=wb.getSize(new THREE.Vector3()), c2=wb.getCenter(new THREE.Vector3());
+          S.lookY=c2.y;                                              // aim at the model's real center (fixes "zoomed on the toes")
+          const vHalf=42*Math.PI/360, aspect=(S.cam&&S.cam.aspect)||((cw/ch)||1);
+          const distV=(wsz.y*0.5)/Math.tan(vHalf);
+          const distH=(wsz.x*0.5)/(Math.tan(vHalf)*Math.max(aspect,0.0001));
+          S.fitDist=Math.max(distV,distH)*1.25;
+        } else { S.fitDist=6.0; S.lookY=0; }
+        S.camDist=S.fitDist; _applyCam(); }
       const bones={}; model.traverse(o=>{ if(o.isBone)bones[o.name]=o; });
       const find=(sd,kd)=>{ const ex='mixamorig_'+sd+kd; if(bones[ex])return bones[ex]; const ss=sd.toLowerCase(),kk=kd.toLowerCase(); for(const k in bones){ const lk=k.toLowerCase(); if(lk.indexOf(kk)>=0&&lk.indexOf(ss)>=0)return bones[k]; } return null; };
       S.footL=find('Left','Foot'); S.footR=find('Right','Foot');
