@@ -18721,7 +18721,7 @@ function _makeRoboBoot(side){
 // Per-side fine-tune hooks (independent). Identity = the base orient. If ONE boot is still off by a clean
 // angle, set ONLY that side's Euler here (radians) and the other side is untouched.
 const _BOOT_FIX_L=new THREE.Euler(0,0,0);
-const _BOOT_FIX_R=new THREE.Euler(0,0,0);
+const _BOOT_FIX_R=new THREE.Euler(Math.PI/2,0,0);   // RIGHT only: 90deg front-flip (toe-forward pitch) to correct the right boot
 function _attachBoot(boot,foot,toe,side){
   player.model.updateWorldMatrix(true,true);
   // base orient: upright, facing the MODEL forward (so the boot follows the foot bone's animated pose afterward)
