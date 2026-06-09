@@ -13373,6 +13373,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(scene._robotLight) scene._robotLight.position.set(player.wx,player.py+20,player.wz);
       let spd=Math.hypot(player.vx,player.vz);
       player._mixer.update(dt);
+      if(player._reorientBootsT>0){ player._reorientBootsT--; if(window._reorientGameBoots) window._reorientGameBoots(); }
 
       // ── Procedural arm IK — runs after mixer so it overrides bone rotations ──
       const ud2=player.model.userData;
@@ -18748,6 +18749,7 @@ function _attachBoot(boot,foot,toe,side){
   foot.add(boot);
   _orientGameBoot(boot,foot,side);
   (player._boots=player._boots||[]).push(boot);
+  if(player) player._reorientBootsT=8;   // re-orient for the next few frames AFTER the mixer poses the bones (fixes stale-pose attach)
 }
 window._reorientGameBoots=function(){ if(player&&player._boots) for(const b of player._boots) _orientGameBoot(b,b._foot,b._side); };
 window._bootTune={ side:'R',
@@ -20515,6 +20517,7 @@ window._showScreen=function(name){
     if(S.bootL||S.bootR){ if(S.bootL&&S.footL)S.footL.remove(S.bootL); if(S.bootR&&S.footR)S.footR.remove(S.bootR); S.bootL=S.bootR=null; }
     else { if(S.footR){ S.bootR=_makeRoboBoot(1); S.footR.add(S.bootR); orient(S.bootR,S.footR,1); } if(S.footL){ S.bootL=_makeRoboBoot(-1); S.footL.add(S.bootL); orient(S.bootL,S.footL,-1); } }
     const b=document.getElementById('ws-boots'); if(b) b.style.opacity=(S.bootL||S.bootR)?'1':'0.5';
+    if(S.bootL||S.bootR) S.reorientT=8;   // settle onto posed bones (no RESET needed)
   }
   function playClip(name){ if(!S||!S.mixer) return; if(name==='__bind'){ S.mixer.stopAllAction(); S.curAction=null; return; } const c=S.clips[name]; if(!c) return; if(S.curAction)S.curAction.fadeOut(0.25); const a=S.mixer.clipAction(c); a.reset().fadeIn(0.25).play(); S.curAction=a; }
   function poseButtons(){
@@ -20562,7 +20565,7 @@ window._showScreen=function(name){
     window.addEventListener('mousemove',onMove); canvas.addEventListener('touchmove',onMove,{passive:false});
     window.addEventListener('mouseup',onUp); window.addEventListener('touchend',onUp);
     canvas.addEventListener('wheel',onWheel,{passive:false});
-    S.loop=function(){ if(!S||!S.running) return; const dt=S.clock.getDelta(); if(S.mixer)S.mixer.update(dt); if(S.autoSpin&&!S.drag)S.turn.rotation.y+=dt*0.45; S.renderer.render(S.scn,S.cam); requestAnimationFrame(S.loop); };
+    S.loop=function(){ if(!S||!S.running) return; const dt=S.clock.getDelta(); if(S.mixer)S.mixer.update(dt); if(S.reorientT>0){S.reorientT--; reorient();} if(S.autoSpin&&!S.drag)S.turn.rotation.y+=dt*0.45; S.renderer.render(S.scn,S.cam); requestAnimationFrame(S.loop); };
     const wire=(id,fn)=>{ const el=document.getElementById(id); if(el)el.addEventListener('click',fn); };
     wire('ws-close',()=>window.closeWorkshop());
     wire('ws-boots',toggleBoots);
