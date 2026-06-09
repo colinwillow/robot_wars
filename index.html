@@ -6912,7 +6912,17 @@ class FlameThrower{
     this.light=new THREE.PointLight(0xff6a1a,0,300,2); scene.add(this.light);
   }
   _origin(pl){ let ox=pl.wx, oy=9+pl.py, oz=pl.wz; const bn=pl.model&&pl.model.userData&&pl.model.userData.bones; const hb=bn&&(bn['mixamorig_RightHand']||bn['mixamorig_LeftHand']); if(hb){ const hp=new THREE.Vector3(); hb.getWorldPosition(hp); ox=hp.x; oy=hp.y; oz=hp.z; } return [ox,oy,oz]; }
-  _origins(pl){ const bn=pl.model&&pl.model.userData&&pl.model.userData.bones; const out=[]; const rb=bn&&bn['mixamorig_RightHand'], lb=bn&&bn['mixamorig_LeftHand']; if(rb){ const v=new THREE.Vector3(); rb.getWorldPosition(v); out.push([v.x,v.y,v.z]); } if(lb){ const v=new THREE.Vector3(); lb.getWorldPosition(v); out.push([v.x,v.y,v.z]); } if(out.length===0) out.push([pl.wx,9+pl.py,pl.wz]); return out; }
+  _origins(pl){ const bn=pl.model&&pl.model.userData&&pl.model.userData.bones; const out=[];
+    if(bn){
+      const find=(sd)=>{ const ex='mixamorig_'+sd+'Hand'; if(bn[ex])return bn[ex]; const ss=sd.toLowerCase(); for(const k in bn){ const lk=k.toLowerCase(); if(lk.endsWith('hand') && lk.indexOf(ss)>=0) return bn[k]; } return null; };   // wrist bone only (endsWith 'hand' skips finger bones)
+      const rb=find('Right'), lb=find('Left');
+      if(rb){ const v=new THREE.Vector3(); rb.getWorldPosition(v); out.push([v.x,v.y,v.z]); }
+      if(lb){ const v=new THREE.Vector3(); lb.getWorldPosition(v); out.push([v.x,v.y,v.z]); }
+    }
+    if(out.length>=2) return out;   // GLB robot: one stream per hand
+    // ship / no bones: a SINGLE muzzle at the body front
+    const a=pl.aim, fx=Math.cos(a), fz=Math.sin(a);
+    return [[pl.wx+fx*12, 9+pl.py+4, pl.wz+fz*12]]; }
   _dir(pl){ const a=pl.aim; let dx=Math.cos(a),dy=0,dz=Math.sin(a);
     if(pl._aim3DActive&&pl._aim3D){ dx=pl._aim3D.x; dy=pl._aim3D.y; dz=pl._aim3D.z; }
     else if(pl._inPlanetGravity&&typeof _gN!=='undefined'){ const f=new THREE.Vector3(Math.cos(a),0,Math.sin(a)); f.addScaledVector(_gN,-f.dot(_gN)); if(f.lengthSq()>1e-4){ f.normalize(); dx=f.x;dy=f.y;dz=f.z; } }
@@ -7054,7 +7064,7 @@ function _singPreview(x,z,R,show){
     if(typeof scene!=='undefined')scene.add(_singGhost);
   }
   _singGhost.visible=true; _singGhost.position.set(x,16,z);
-  const rr=R*0.35; _singGhost._ring.scale.set(rr,rr,rr);   // tighter drop-marker, not the full blast radius
+  _singGhost._ring.visible=false;   // no giant blast-radius ring — just the orb marker + orbiting tori
   const t=performance.now()*0.001;
   _singGhost._gc.scale.setScalar(0.8+0.25*Math.sin(t*5));
   for(let i=0;i<_singGhost._r.length;i++){ _singGhost._r[i].rotation.x=t*(1.4+i); _singGhost._r[i].rotation.y=t*(1+i*0.6); }
@@ -7173,7 +7183,7 @@ class MushroomCloud{
     this.H=360*S; this.capRmax=205*S; this.stemR=46*S; this.baseRmax=300*S;
     this.riseT=2.4; this.capStart=1.05;
     this.group=new THREE.Group(); this.group.position.set(wx,0,wz); if(typeof scene!=='undefined')scene.add(this.group);
-    this._geo=new THREE.SphereGeometry(1,8,6);
+    this._geo=new THREE.SphereGeometry(1,14,10);   // smoother soft puffs
     // FLASH — blinding sphere, gone in 0.2s
     this.flash=new THREE.Mesh(this._geo, new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:1,blending:THREE.AdditiveBlending,depthWrite:false})); this.group.add(this.flash);
     // FIREBALL — hot base bloom
@@ -7182,6 +7192,8 @@ class MushroomCloud{
     this.shock=new THREE.Mesh(new THREE.RingGeometry(0.9,1.0,64), new THREE.MeshBasicMaterial({color:0xfff2c0,transparent:true,opacity:0.8,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); this.shock.rotation.x=-Math.PI/2; this.shock.position.y=2; this.group.add(this.shock);
     // CONDENSATION ring (Wilson) — brief expanding halo
     this.cond=new THREE.Mesh(new THREE.TorusGeometry(1,0.04,6,40), new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false})); this.cond.rotation.x=Math.PI/2; this.group.add(this.cond);
+    // SHOCKWAVE 2 — wider, slower trailing ring for a heavier ground blast
+    this.shock2=new THREE.Mesh(new THREE.RingGeometry(0.9,1.0,90), new THREE.MeshBasicMaterial({color:0xffce8a,transparent:true,opacity:0.55,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); this.shock2.rotation.x=-Math.PI/2; this.shock2.position.y=3; this.group.add(this.shock2);
     // PUFFS
     const m=(typeof IS_MOBILE!=='undefined'&&IS_MOBILE)?0.58:1;
     this.puffs=[];
@@ -7189,10 +7201,18 @@ class MushroomCloud{
     for(let i=0;i<Ns;i++){ const frac=i/(Ns-1); this._addPuff('stem',{frac,a:rand(TAU),seed:rand(TAU),tr:frac*this.riseT*0.85}); }
     for(let i=0;i<Nc;i++){ const layer=i%3; this._addPuff('cap',{th:(i/Nc)*TAU*3,layer,dome:layer===0,phi:rand(TAU),seed:rand(TAU)}); }
     for(let i=0;i<Nb;i++){ this._addPuff('base',{a:rand(TAU),seed:rand(TAU),rr:0.3+Math.random()*0.7}); }
+    // SWIRL CURLS — thin helical streamers winding up the stem & around the cap (the "smoky physics" detail)
+    this.swirls=[]; { const NS=((typeof IS_MOBILE!=='undefined'&&IS_MOBILE)?4:7);
+      for(let sI=0;sI<NS;sI++){ const turns=2.0+Math.random()*1.8, hPts=46, ph=rand(TAU), rad=this.stemR*(0.9+sI*0.32), pts=[];
+        for(let i=0;i<=hPts;i++){ const u=i/hPts, ang=ph+u*TAU*turns, rr=rad*(0.45+u*1.05); pts.push(new THREE.Vector3(Math.cos(ang)*rr, this.gy+u*this.H, Math.sin(ang)*rr)); }
+        const ln=new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({color:0xffb060,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false}));
+        ln._spin=(rand(0.2,0.6))*(sI%2?1:-1); this.group.add(ln); this.swirls.push(ln); } }
+    this._ripT=0;
     // detonation kick
     if(typeof flashScreen==='function')flashScreen(1); if(typeof addTrauma==='function')addTrauma(0.55); if(typeof slowmo==='function')slowmo(0.42,30); if(typeof punchZoom==='function')punchZoom(1.4);
     if(grid){ if(grid.shock)grid.shock(wx,wz,6.5); if(grid.push)grid.push(wx,wz,9,this.baseRmax); }
-    if(typeof ps!=='undefined'){ for(let i=0;i<48;i++){ const a=rand(TAU), sp=rand(220,640); ps._spawn(wx,this.gy+6,wz, Math.cos(a)*sp, rand(60,300), Math.sin(a)*sp, 1,0.82,0.42, 0.55); } }
+    if(typeof ps!=='undefined'){ for(let i=0;i<48;i++){ const a=rand(TAU), sp=rand(220,640); ps._spawn(wx,this.gy+6,wz, Math.cos(a)*sp, rand(60,300), Math.sin(a)*sp, 1,0.82,0.42, 0.55); }
+      for(let i=0;i<56;i++){ const a=(i/56)*TAU; ps._spawn(wx,this.gy+2,wz, Math.cos(a)*rand(520,860), rand(6,46), Math.sin(a)*rand(520,860), 1,0.86,0.55, 0.72); } }   // ground-hugging shock dust racing out
     if(typeof Audio!=='undefined'){ Audio.blip(28,1.6,'sine',0.42,15); Audio.blip(55,1.0,'sawtooth',0.3,22); Audio.blip(110,0.4,'square',0.16,40); }
   }
   _addPuff(role,d){ const mat=new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0,depthWrite:false}); const mesh=new THREE.Mesh(this._geo,mat); mesh.scale.setScalar(0.01); this.group.add(mesh); this.puffs.push(Object.assign({role,mesh,mat,born:-1},d)); }
@@ -7207,8 +7227,11 @@ class MushroomCloud{
     if(T<0.2){ const f=T/0.2; this.flash.visible=true; this.flash.scale.setScalar(this.stemR*(1+f*6)); this.flash.material.opacity=1-f; } else this.flash.visible=false;
     // fireball
     { const f=E(Math.min(1,T/0.5)), fc=Math.min(1,T/1.1); this.fireball.scale.setScalar(Math.max(0.01,this.stemR*(0.6+1.9*f)*(1-0.5*fc))); const c=this._ramp(fc*0.6); this.fireball.material.color.setRGB(c[0],c[1],c[2]); this.fireball.material.opacity=Math.max(0,0.95*(1-fc)); this.fireball.position.y=this.stemR*1.2+E(Math.min(1,T/2))*40; this.fireball.visible=fc<1; }
-    // shockwave
-    { const f=Math.min(1,T/0.9); this.shock.scale.setScalar(20+this.baseRmax*1.5*f); this.shock.material.opacity=0.8*(1-f); this.shock.visible=f<1; }
+    // shockwave (sharp leading ring + heavier trailing ring)
+    { const f=Math.min(1,T/0.9); this.shock.scale.setScalar(20+this.baseRmax*1.5*f); this.shock.material.opacity=0.85*(1-f); this.shock.visible=f<1; }
+    { const f=Math.min(1,T/1.5); this.shock2.scale.setScalar(20+this.baseRmax*2.2*f); this.shock2.material.opacity=0.55*(1-f)*(1-f); this.shock2.visible=f<1; }
+    // ROLLING GROUND RIPPLE — push an expanding ring of grid displacement outward for ~1.4s (intense ground shock)
+    if(T<1.4 && grid && grid.push){ this._ripT-=dt; if(this._ripT<=0){ this._ripT=0.07; const rr=20+this.baseRmax*1.7*(T/1.4), nn=16; for(let k=0;k<nn;k++){ const a=(k/nn)*TAU+T; grid.push(this.wx+Math.cos(a)*rr, this.wz+Math.sin(a)*rr, this.od?4.6:3.4, 64); } } }
     // condensation ring
     { if(T>0.25&&T<1.0){ const f=(T-0.25)/0.75, r=this.capRmax*0.5+this.capRmax*1.4*f; this.cond.visible=true; this.cond.position.y=this.H*0.5; this.cond.scale.set(r,r,r); this.cond.material.opacity=0.5*(1-f); } else this.cond.visible=false; }
     const rise=E(Math.min(1,T/this.riseT)), drift=E(Math.min(1,T/4))*70;
@@ -7246,6 +7269,12 @@ class MushroomCloud{
         p.mesh.material.opacity=0.4*grow*(T>this.life-1.4?Math.max(0,(this.life-T)/1.4):1);
       }
     }
+    // swirl curls: rotate + rise with the cloud, warm -> grey, fade out
+    if(this.swirls){ const fade=T<0.45?(T/0.45):(T>this.life-2.2?Math.max(0,(this.life-T)/2.2):1); const cc=this._ramp(Math.min(1,T/3));
+      for(const ln of this.swirls){ ln.rotation.y+=ln._spin*dt; ln.position.y=drift*0.5; ln.material.opacity=0.34*fade; ln.material.color.setRGB(cc[0],cc[1],cc[2]); } }
+    // drifting smoke flecks for fine detail
+    if(typeof ps!=='undefined' && T<this.life-1 && Math.random()<0.7){ const yy=this.gy+rand(0.25,1)*this.H, rr=this.stemR*rand(0.4,2.6), a=rand(TAU);
+      ps._spawn(this.wx+Math.cos(a)*rr, yy, this.wz+Math.sin(a)*rr, rand(-22,22), rand(6,42), rand(-22,22), 0.5,0.46,0.42, 0.5); }
     return 1;
   }
   remove(){ if(typeof scene!=='undefined')scene.remove(this.group); this.group.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); if(this._geo)this._geo.dispose(); }
@@ -7256,12 +7285,17 @@ function _nukePreview(x,z,R,show){
   if(!show){ if(_nukeGhost)_nukeGhost.visible=false; return; }
   if(!_nukeGhost){
     _nukeGhost=new THREE.Group();
-    const ring=new THREE.Mesh(new THREE.RingGeometry(0.96,1.0,72), new THREE.MeshBasicMaterial({color:0xff7b3a,transparent:true,opacity:0.6,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); ring.rotation.x=-Math.PI/2; _nukeGhost.add(ring); _nukeGhost._ring=ring;
-    for(let i=0;i<2;i++){ const cross=new THREE.Mesh(new THREE.BoxGeometry(i?3:30,0.6,i?30:3), new THREE.MeshBasicMaterial({color:0xffd27a,transparent:true,opacity:0.8,blending:THREE.AdditiveBlending,depthWrite:false})); _nukeGhost.add(cross); }
+    const ch=()=>new THREE.MeshBasicMaterial({color:0xffd27a,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false});
+    const L=22,G=9,TH=2.2;   // four gapped crosshair bars
+    [[1,0],[-1,0],[0,1],[0,-1]].forEach(d=>{ const h=d[0]!==0; const bar=new THREE.Mesh(new THREE.BoxGeometry(h?L:TH,0.6,h?TH:L),ch()); bar.position.set(d[0]*(G+L/2),0,d[1]*(G+L/2)); _nukeGhost.add(bar); });
+    const dot=new THREE.Mesh(new THREE.SphereGeometry(2.6,12,10), new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false})); _nukeGhost.add(dot); _nukeGhost._dot=dot;
+    const tick=new THREE.Mesh(new THREE.RingGeometry(13,15.5,4), new THREE.MeshBasicMaterial({color:0xff7b3a,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); tick.rotation.x=-Math.PI/2; _nukeGhost.add(tick); _nukeGhost._tick=tick;
     if(typeof scene!=='undefined')scene.add(_nukeGhost);
   }
-  _nukeGhost.visible=true; _nukeGhost.position.set(x,7,z); _nukeGhost._ring.scale.set(R,R,R);
-  const t=performance.now()*0.001; _nukeGhost._ring.material.opacity=0.45+0.25*Math.sin(t*7);
+  _nukeGhost.visible=true; _nukeGhost.position.set(x,7,z);
+  const t=performance.now()*0.001;
+  if(_nukeGhost._dot)_nukeGhost._dot.scale.setScalar(0.8+0.4*Math.sin(t*8));
+  if(_nukeGhost._tick)_nukeGhost._tick.rotation.z=t*1.5;
 }
 // Where the aim reticle sits (ground point at push-distance, or a rooftop it lands on). Bullets/rockets aim AT this so the shot visibly converges on the ring.
 function _reticleTarget(pl, ang, w, mag){
