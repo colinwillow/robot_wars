@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+l<!DOCTYPE html>
 <html lang="en">
 <head>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
@@ -7296,6 +7296,40 @@ class MushroomCloud{
   }
   remove(){ if(this.debris)for(const d of this.debris){ if(typeof scene!=='undefined')scene.remove(d.m); if(d.m.material)d.m.material.dispose(); } if(this._dgeo)this._dgeo.dispose(); if(typeof scene!=='undefined')scene.remove(this.group); this.group.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); if(this._geo)this._geo.dispose(); }
 }
+// ───────── SPAWN PROTECTION AURA ─────────
+// Stylized spawn-invincibility shield (replaces the old blink): soft additive energy shell + hex-edge field,
+// three gyroscope rings, a cloud of swirling orbital particles, and a ground flourish ring. Temporary (~4s) so it can be lush.
+class SpawnAura{
+  constructor(model){
+    this.t=0; const MOB=(typeof IS_MOBILE!=='undefined'&&IS_MOBILE);
+    this.group=new THREE.Group(); if(typeof scene!=='undefined')scene.add(this.group);
+    this.R=22;
+    // ── CONFORMING FORCE-FIELD SKIN: clone each model mesh, push verts out along their normals ──
+    this.skin=[]; this.skinMats=[];
+    try{ if(model) model.traverse(o=>{
+      if((o.isSkinnedMesh||o.isMesh)&&o.geometry&&o.geometry.attributes&&o.geometry.attributes.position&&o.geometry.attributes.normal){
+        const g=o.geometry.clone(); g.computeBoundingSphere(); const OFF=((g.boundingSphere&&g.boundingSphere.radius)||10)*0.09;
+        const p=g.attributes.position, n=g.attributes.normal;
+        for(let i=0;i<p.count;i++){ p.setXYZ(i, p.getX(i)+n.getX(i)*OFF, p.getY(i)+n.getY(i)*OFF, p.getZ(i)+n.getZ(i)*OFF); } p.needsUpdate=true;
+        const mat=new THREE.MeshBasicMaterial({color:0x4af0ff,transparent:true,opacity:0.16,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
+        let m; if(o.isSkinnedMesh){ m=new THREE.SkinnedMesh(g,mat); m.bindMode=o.bindMode; m.bind(o.skeleton,o.bindMatrix); } else { m=new THREE.Mesh(g,mat); }
+        m.position.copy(o.position); m.quaternion.copy(o.quaternion); m.scale.copy(o.scale); m.frustumCulled=false; m.renderOrder=20;
+        (o.parent||model).add(m); this.skin.push(m); this.skinMats.push(mat);
+      }
+    }); }catch(e){ this.skin.length=0; }
+    if(!this.skin.length){   // fallback soft shell only if the model had no usable meshes
+      const sh=new THREE.Mesh(new THREE.IcosahedronGeometry(this.R,2), new THREE.MeshBasicMaterial({color:0x4af0ff,transparent:true,opacity:0.12,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); this.group.add(sh); this.skinMats.push(sh.material); this._fallbackShell=sh;
+    }
+    // (removed gyro rings, swirling orbital particles, and ground flourish — keep only the conforming force-field skin)
+    this.rings=[];
+  }
+  update(px,py,pz,dt,fade){
+    this.t+=dt; const t=this.t; this.group.position.set(px,py,pz);
+    const sk=0.16*fade*(0.7+0.3*Math.sin(t*5)); for(const mm of this.skinMats) mm.opacity=sk;
+    if(this._fallbackShell) this._fallbackShell.scale.setScalar(1+0.05*Math.sin(t*6));
+  }
+  remove(){ for(const m of this.skin){ if(m.parent)m.parent.remove(m); if(m.geometry)m.geometry.dispose(); if(m.material)m.material.dispose(); } if(typeof scene!=='undefined')scene.remove(this.group); this.group.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); }
+}
 // Hold-to-aim preview for the nuke (target marker + blast radius)
 let _nukeGhost=null;
 function _nukePreview(x,z,R,show){
@@ -7363,14 +7397,7 @@ function _updateGrenadeAim(pl,dt){
   pl._gnT=(pl._gnT||0)+dt; const pulse=0.55+0.28*Math.sin(pl._gnT*9), psc=1+0.08*Math.sin(pl._gnT*9);
   const isAir=(w==='bullets'||w==='rockets');
   if(isAir){
-    mk._ground.visible=false; mk._air.visible=true;
-    const fly=Math.max(14,(pl.py||0)+18);                 // robot flight height
-    mk._air.position.set(T.x, fly, T.z);
-    mk._air.rotation.y=Math.PI/2 - a;                     // 90° up, facing along the shot so you sight through it
-    mk._air.scale.setScalar(psc);
-    mk._air._ring.material.color.setHex(col); mk._air._ring.material.opacity=pulse;
-    mk._air._dot.material.color.setHex(col);
-    for(const t of mk._air._ticks){ t.material.color.setHex(col); t.material.opacity=pulse; }
+    mk._ground.visible=false; mk._air.visible=false;      // aim reticle removed for bullets/rockets — keep only the heat-seek lock ring
     // ROCKETS: glow the enemy nearest the aim line to imply the lock
     if(w==='rockets'){
       let best=null, bestDa=0.26;
@@ -9089,9 +9116,11 @@ class Player{
     }
     if(this._respawnBlink>0){
       this._respawnBlink--;
-      this.model.visible=(Math.floor(this._respawnBlink/3)%2===0);
-      if(this._respawnBlink<=0) this.model.visible=true;
-    }
+      this.model.visible=true;   // no more blinking — show a stylized spawn-protection aura instead
+      if(!this._spawnAura){ try{ this._spawnAura=new SpawnAura(this.model); }catch(e){ this._spawnAura=null; } }
+      if(this._spawnAura){ const fade=Math.min(1,(240-this._respawnBlink)/12)*Math.min(1,this._respawnBlink/45); this._spawnAura.update(this.wx, 9+this.py+9, this.wz, 0.016, fade); }
+      if(this._respawnBlink<=0){ this.model.visible=true; if(this._spawnAura){ this._spawnAura.remove(); this._spawnAura=null; } }
+    } else if(this._spawnAura){ this._spawnAura.remove(); this._spawnAura=null; }
     playerLight.position.set(this.wx,40+this.py*0.5,this.wz);
     if(ud.shieldMat){
       ud.shieldMat.opacity=this.inv>0?(0.09+0.1*Math.sin(t*12)):od?0.04:0.025;
@@ -11190,7 +11219,7 @@ function _cycleArena(){
   else { _arenaMode=next; if(typeof announce==='function') announce('ARENA: '+_arenaMode.toUpperCase(),'#ffd24a'); }
 }
 window._cycleArena=_cycleArena;
-window._launchArena=function(mode){ _arenaMode=mode; const ov=document.getElementById('overlay'); if(ov) ov.style.display='none'; startGame(-5); };
+window._launchArena=function(mode){ _arenaMode=mode; window._onslaughtArena=true; const ov=document.getElementById('overlay'); if(ov) ov.style.display='none'; startGame(-5); };
 function _arenaEnemyHazard(e){
   if(!e.mesh || e.isBoss || e._invulnerable) return;
   const kbSp=Math.hypot(e._kbVx||0,e._kbVz||0);
@@ -11579,7 +11608,7 @@ function updateTransition(dt){
     if(grid.glow)grid.glow.material.opacity=0.18*clamp((ARENA_R-F)/_T_BAND,0,1);
     if(window.LIGHT_MODE){ grid.lines.material.opacity=(grid.lines.material._origOpacity!=null?grid.lines.material._origOpacity:1)*rev; if(grid.glowLines) grid.glowLines.material.opacity=(grid.glowLines.material._origOpacity!=null?grid.glowLines.material._origOpacity:1)*rev; }
     if(allReleased && maxY<2.0){
-      st.mode='combat'; _setGateState('locked'); _transSpawnEnemies(); st.armed=false; makePowerupStations(_transStage); makeArenaObstacles(_transStage); _buildArena(_transStage);
+      st.mode='combat'; _setGateState('locked'); _transSpawnEnemies(); st.armed=false; makePowerupStations(_transStage); if(window._onslaughtArena){ makeArenaObstacles(_transStage); _buildArena(_transStage); }
       grid.dots.material.opacity=0.9; grid.perimeter.material.opacity=0.9; if(grid.glow)grid.glow.material.opacity=0.18;
       if(window.LIGHT_MODE){ grid.lines.material.opacity=(grid.lines.material._origOpacity!=null?grid.lines.material._origOpacity:1); if(grid.glowLines) grid.glowLines.material.opacity=(grid.glowLines.material._origOpacity!=null?grid.glowLines.material._origOpacity:1); }
       announce('SECTOR '+_transStage+' · CLEAR THE AREA','#ff3355');
@@ -11587,13 +11616,13 @@ function updateTransition(dt){
     }
   } else if(st.mode==='combat'){
     if(_transGate){ const b=_transGate.userData.barrier; b.material.opacity=0.55+0.2*Math.sin(now*5); b.rotation.z=Math.sin(now*0.6)*0.04; }
-    if(GS.enemies.length>0) st.armed=true;
-    if(st.armed && GS.enemies.length===0){
+    if(GS.enemies.length>0 || _spawnBeams.length>0) st.armed=true;
+    if(st.armed && GS.enemies.length===0 && _spawnBeams.length===0){
       st.mode='active'; _setGateState('open'); st.gateT=now;
       const bx=_transGate.position.x, bz=_transGate.position.z;
       ps.ring(bx,bz,[1,0.2,0.33],26,150); ps.burst(bx,bz,[0.2,1,0.8],30,160); addTrauma(0.08); flashScreen(0.3);
       announce('SECTOR CLEAR · GATE OPEN','#33ffcc');
-      spawnPhysicalText('GO', 0x66ffd9, 40); if(_physText) _physText.userData.flash=true; if(_exitGuide) _exitGuide.userData.active=true;
+      spawnPhysicalText('CLEARED', 0x66ffd9, 40); if(_physText) _physText.userData.flash=true; if(_exitGuide) _exitGuide.userData.active=true;
     }
   } else if(st.mode==='active'){
     const pulse=0.55+0.45*Math.sin(now*3.2);
@@ -13342,6 +13371,15 @@ function _updateSkyViz(dt){
   S.g.attributes.position.needsUpdate=true; S.g.attributes.color.needsUpdate=true;
 }
 function loop(ts){ requestAnimationFrame(loop);
+  // ── FRAME PACING ── Cap to ~60fps. Some per-frame logic (velocity lerps, knockback, the visualizer)
+  // is tuned for 60Hz; on a 120/144Hz desktop it runs ~2.4x too fast and desyncs from the dt-scaled
+  // motion -> the "runs faster" + jitter you see. The 60Hz iPhone never hits this. Set window._uncap=true to disable.
+  if(window._uncap!==true){
+    if(loop._fpAcc===undefined){ loop._fpAcc=0; loop._fpLast=ts; }
+    loop._fpAcc += ts - loop._fpLast; loop._fpLast = ts;
+    if(loop._fpAcc < 15.5) return;                                   // not enough elapsed -> skip this rAF
+    loop._fpAcc -= 16.6667; if(loop._fpAcc > 33) loop._fpAcc = 33;   // consume one 60Hz tick; clamp backlog after a stall
+  }
   { const playing=(typeof GS!=='undefined'&&GS.state==='playing');
     const _ct=document.getElementById('crate-toggle');
     if(_ct){ const _ds=playing?'flex':'none'; if(_ct.style.display!==_ds)_ct.style.display=_ds; if(playing&&player){ const _txt='CRATE '+(player.crates||0); if(_ct.textContent!==_txt)_ct.textContent=_txt; const _on=(player._bombMode==='crate'&&player.bombArmed); const _bg=_on?'rgba(20,64,76,0.82)':'rgba(6,16,20,0.66)'; if(_ct.style.background!==_bg)_ct.style.background=_bg; } }
@@ -13379,12 +13417,7 @@ function loop(ts){ requestAnimationFrame(loop);
     if(IS_TOUCH&&jR._holdingForJet&&player&&!player.bombArmed&&!player._wallClimb){
       const _air = player._inPlanetGravity ? !player._glGrounded : (player.py>8&&!player._onPlatform);
       if(!_air){ jR._jetLatch=false; jR._jetEligible=false; }
-      else if(player.boostFuel>0){
-        const _sm=Math.hypot(shootIn.x,shootIn.y);
-        if(_sm>=0.4) jR._jetEligible=false;                                                                    // pushed out to fire -> this hold will NOT jet
-        if(jR._jetEligible && _sm<0.4 && (performance.now()-(jR._jetCenterStart||0))>200) jR._jetLatch=true;    // dwelled centered -> deliberate jet
-        if(jR._jetLatch) player._jetting=true;                                                                 // once jetting, keep it (slide out to fire too)
-      }
+      else if(player.boostFuel>0){ jR._jetEligible=true; jR._jetLatch=true; player._jetting=true; }            // airborne + holding stick = jetpack (no center-dwell gate; fire while jetting)
       else { jR._jetLatch=false; jR._jetEligible=false; player._jetting=false; }                               // OUT OF FUEL -> cut the jet; release and press again to resume
     }
 
@@ -15186,11 +15219,11 @@ function buildBuggy(){
     linkBox(piv,P(3,-3,5),P(HX-3,8,-3), 1.6,1.6,EDGE,0.8);// X-brace
     linkCyl(piv,P(5,13,6),P(HX*0.72,1,0),1.8,GRN);        // coilover shock
     const kn=new THREE.Mesh(new THREE.BoxGeometry(5,9,7), new THREE.MeshBasicMaterial({color:0x2a261d})); kn.position.set(HX-1,3,0); piv.add(kn);
-    b.corners.push({piv,phase:Math.random()*TAU,wheelLocal:new THREE.Vector3(sx*TRACK,RW,wz)});
+    b.corners.push({piv,wg,HX,phase:Math.random()*TAU,wheelLocal:new THREE.Vector3(sx*TRACK,RW,wz)});
   };
   mkCorner(1,WB); mkCorner(-1,WB); mkCorner(1,-WB); mkCorner(-1,-WB);
   b.underMat=new THREE.MeshBasicMaterial({color:GRN,transparent:true,opacity:0.12,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
-  const under=new THREE.Mesh(new THREE.PlaneGeometry(64,84),b.underMat); under.rotation.x=-Math.PI/2; under.position.y=2; grp.add(under);
+  const under=new THREE.Mesh(new THREE.PlaneGeometry(64,84),b.underMat); under.rotation.x=-Math.PI/2; under.position.y=2; grp.add(under); b.under=under;
   const NE=40, ep=new Float32Array(NE*3); b._exT=new Float32Array(NE); b._exS=new Float32Array(NE);
   for(let i=0;i<NE;i++){ b._exT[i]=Math.random(); b._exS[i]=i%2; }
   const eg=new THREE.BufferGeometry(); const epAttr=new THREE.BufferAttribute(ep,3); epAttr.setUsage(THREE.DynamicDrawUsage); eg.setAttribute('position',epAttr);
@@ -15222,7 +15255,7 @@ function _disposeBuggy(){
 }
 // ════════════════════════════ DUNE DRIVE MODE (physics) ════════════════════════════
 let _drive=null;
-function _driveH(x,z){ return Math.sin(x*0.006)*90+Math.cos(z*0.005)*80+Math.sin((x+z)*0.012)*30+Math.sin(x*0.02-z*0.015)*14+Math.sin(x*0.045)*6*Math.cos(z*0.04); }
+function _driveH(x,z){ return Math.sin(x*0.0030)*210+Math.cos(z*0.0026)*185+Math.sin((x+z)*0.006)*64+Math.sin(x*0.013-z*0.011)*24+Math.sin(x*0.04)*7*Math.cos(z*0.035); }
 function _driveN(x,z){ const e=3, hx=_driveH(x+e,z)-_driveH(x-e,z), hz=_driveH(x,z+e)-_driveH(x,z-e); return new THREE.Vector3(-hx/(2*e),1,-hz/(2*e)).normalize(); }
 function _drivePrompt(show){ let el=document.getElementById('buggy-prompt');
   if(show&&!el){ el=document.createElement('div'); el.id='buggy-prompt'; el.style.cssText='position:fixed;left:50%;top:34%;transform:translateX(-50%);z-index:95;font:bold 16px Orbitron,monospace;color:#9bff3a;background:#000a;border:2px solid #9bff3a;border-radius:10px;padding:9px 16px;letter-spacing:2px;pointer-events:auto;box-shadow:0 0 18px #9bff3a88'; el.textContent='TAP TO DRIVE'; el.onclick=enterBuggyDrive; document.body.appendChild(el); }
@@ -15231,14 +15264,17 @@ function _driveHud(id,css,txt){ let e=document.getElementById(id); if(!e){ e=doc
 function enterBuggyDrive(){
   if(_drive||!window._buggy) return; _drivePrompt(false);
   const bg=window._buggy; bg._homePos=bg.grp.position.clone(); bg._homeQuat=bg.grp.quaternion.clone();
-  if(bg.groundRing)bg.groundRing.visible=false; if(bg.beacon)bg.beacon.visible=false; if(bg.body)bg.body.position.y=0;
+  if(bg.groundRing)bg.groundRing.visible=false; if(bg.beacon)bg.beacon.visible=false; if(bg.body)bg.body.position.y=0; if(bg.under)bg.under.visible=false;
   if(player&&player.model) player.model.visible=false; _flyHideRobotHud(true);
   const start=new THREE.Vector3(0,_driveH(0,0)+34,0);
   _drive={active:true,bg,p:start.clone(),v:new THREE.Vector3(),q:new THREE.Quaternion(),w:new THREE.Vector3(),yaw:0,spd:0,grounded:true,boost:60,_rt:0};
   bg.grp.position.copy(start); bg.grp.quaternion.identity();
   const TS=64,TSIZE=9000,tg=new THREE.PlaneGeometry(TSIZE,TSIZE,TS,TS); tg.rotateX(-Math.PI/2); tg.setAttribute('color',new THREE.BufferAttribute(new Float32Array((TS+1)*(TS+1)*3),3));
   const tm=new THREE.MeshBasicMaterial({wireframe:true,vertexColors:true,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false});
-  const terr=new THREE.Mesh(tg,tm); terr.frustumCulled=false; scene.add(terr); _drive.terr={mesh:terr,geo:tg,TS,TSIZE,cell:TSIZE/TS};
+  const terr=new THREE.Mesh(tg,tm); terr.frustumCulled=false; scene.add(terr);
+  const tmFill=new THREE.MeshBasicMaterial({vertexColors:true,transparent:true,opacity:0.5,side:THREE.DoubleSide,depthWrite:true,polygonOffset:true,polygonOffsetFactor:1,polygonOffsetUnits:2});   // solid fill so the terrain reads as a surface (wireframe still drawn on top)
+  const terrFill=new THREE.Mesh(tg,tmFill); terrFill.frustumCulled=false; terrFill.renderOrder=-1; scene.add(terrFill);
+  _drive.terr={mesh:terr,fill:terrFill,geo:tg,TS,TSIZE,cell:TSIZE/TS};
   _driveHud('buggy-exit','position:fixed;right:16px;top:120px;z-index:96;font:bold 12px monospace;color:#9bff3a;background:#000a;border:1px solid #9bff3a;border-radius:8px;padding:8px 12px;pointer-events:auto','EXIT').onclick=exitBuggyDrive;
   let bb=document.getElementById('buggy-boost'); if(!bb){ bb=document.createElement('div'); bb.id='buggy-boost'; bb.style.cssText='position:fixed;left:50%;top:96px;transform:translateX(-50%);z-index:96;width:150px;height:9px;background:#021a08aa;border:1px solid #9bff3a;border-radius:5px;overflow:hidden;pointer-events:none'; bb.innerHTML='<div id="buggy-boost-fill" style="width:60%;height:100%;background:linear-gradient(90deg,#9bff3a,#ffec3a)"></div>'; document.body.appendChild(bb);} bb.style.display='block';
   const bst=_driveHud('buggy-bst','position:fixed;right:24px;bottom:160px;z-index:96;width:80px;height:80px;border-radius:50%;background:#9bff3a22;border:2px solid #9bff3a;color:#9bff3a;font:bold 13px monospace;display:flex;align-items:center;justify-content:center;pointer-events:auto;user-select:none;touch-action:none','BOOST');
@@ -15250,9 +15286,9 @@ function enterBuggyDrive(){
 }
 function exitBuggyDrive(){
   if(!_drive) return; const bg=_drive.bg;
-  if(_drive.terr){ scene.remove(_drive.terr.mesh); _drive.terr.geo.dispose(); _drive.terr.mesh.material.dispose(); }
+  if(_drive.terr){ scene.remove(_drive.terr.mesh); if(_drive.terr.fill){ scene.remove(_drive.terr.fill); _drive.terr.fill.material.dispose(); } _drive.terr.geo.dispose(); _drive.terr.mesh.material.dispose(); }
   if(bg&&bg._homePos){ bg.grp.position.copy(bg._homePos); bg.grp.quaternion.copy(bg._homeQuat); for(const c of bg.corners)c.piv.rotation.z=0; if(bg.body)bg.body.position.y=0; }
-  if(bg.groundRing)bg.groundRing.visible=true; if(bg.beacon)bg.beacon.visible=true;
+  if(bg.groundRing)bg.groundRing.visible=true; if(bg.beacon)bg.beacon.visible=true; if(bg.under)bg.under.visible=true;
   if(player&&player.model) player.model.visible=true;
   ['buggy-exit','buggy-boost','buggy-bst','buggy-jmp','buggy-yaw'].forEach(id=>{const e=document.getElementById(id); if(e)e.style.display='none';});
   _drive=null;
@@ -15260,11 +15296,11 @@ function exitBuggyDrive(){
 function updateDrive(dt){
   const f=_drive; if(!f) return; const bg=f.bg; f._rt+=dt; dt=Math.min(dt,0.033);
   const k=(c)=>keys[c]?1:0;
-  const steer=clamp(moveIn.x + k('ArrowRight')+k('KeyD') - k('ArrowLeft')-k('KeyA'),-1,1);  // LEFT stick X (steer / air roll)
-  const pitchIn=clamp(moveIn.y,-1,1);                                                        // LEFT stick Y (air pitch)
-  const thr=clamp(-moveIn.y + k('ArrowUp')+k('KeyW') - k('ArrowDown')-k('KeyS'),-1,1);       // LEFT stick Y throttle (up=fwd)
+  const steer=clamp(moveIn.x + k('ArrowRight')+k('KeyD') - k('ArrowLeft')-k('KeyA'),-1,1);  // LEFT stick X — steer (ground) / barrel roll (air)
+  const pitchIn=clamp(moveIn.y,-1,1);                                                        // LEFT stick Y — air pitch (up = nose-down/frontflip, down = backflip)
+  const thr=clamp(-shootIn.y + k('ArrowUp')+k('KeyW') - k('ArrowDown')-k('KeyS'),-1,1);      // RIGHT stick Y — gas (up) / brake + reverse (down)
   const useYaw=f._yawmode||k('KeyZ');
-  const RW=bg.RW, G=300, SUSP=28, MAXD=14, K=55, DAMP=8, INER=5200, up=new THREE.Vector3(0,1,0);
+  const RW=bg.RW, G=430, SUSP=28, MAXD=14, K=70, DAMP=11, INER=5200, up=new THREE.Vector3(0,1,0);
   const accel=new THREE.Vector3(0,-G,0), torque=new THREE.Vector3(); let nGround=0;
   // ---- four independent raycast spring/damper wheels ----
   for(const c of bg.corners){
@@ -15273,7 +15309,7 @@ function updateDrive(dt){
     if(L<SUSP+MAXD){
       const rel=mount.clone().sub(f.p);
       const ptVel=f.v.clone().add(new THREE.Vector3().crossVectors(f.w,rel));
-      let Fm=K*(SUSP-L)-DAMP*ptVel.y; Fm=clamp(Fm,0,1700);
+      let Fm=K*(SUSP-L)-DAMP*ptVel.y; Fm=clamp(Fm,0,2800);
       const F=up.clone().multiplyScalar(Fm);
       accel.add(F); torque.add(new THREE.Vector3().crossVectors(rel,F)); nGround++; c._L=L;
     } else c._L=SUSP+MAXD;
@@ -15288,12 +15324,13 @@ function updateDrive(dt){
     const hv=new THREE.Vector3(f.v.x,0,f.v.z).multiplyScalar(1-Math.min(1,dt*0.5)); f.v.x=hv.x; f.v.z=hv.z;
     const spd=f.v.dot(fwd);
     f.w.y += (-steer)*2.6*dt*clamp(Math.abs(spd)/150,0,1)*(spd<0?-1:1);
-    if(f._jump){ f._jump=false; f.v.y+=330; if(Audio.blip)Audio.blip(320,0.1,'square',0.12); }
+    if(f._jump){ f._jump=false; f.v.y+=520; if(Audio.blip)Audio.blip(320,0.1,'square',0.12); }
   } else {
     const bx=new THREE.Vector3(1,0,0).applyQuaternion(f.q), by=new THREE.Vector3(0,1,0).applyQuaternion(f.q), bz=new THREE.Vector3(0,0,1).applyQuaternion(f.q);
-    f.w.addScaledVector(bx,(-pitchIn)*5.5*dt);                  // pitch: pull back = backflip
-    if(useYaw) f.w.addScaledVector(by,(-steer)*4.5*dt);         // YAW held: turn flat
-    else       f.w.addScaledVector(bz,(-steer)*5.5*dt);         // default: barrel roll (side = spin)
+    const rollIn=clamp(shootIn.x,-1,1);                          // RIGHT stick X = barrel roll
+    f.w.addScaledVector(bx,(-pitchIn)*5.5*dt);                  // LEFT stick Y: forward = nose-down/frontflip, back = backflip
+    f.w.addScaledVector(by,(-steer)*4.5*dt);                    // LEFT stick X: yaw / turn flat (same as ground — left turns left, right turns right)
+    f.w.addScaledVector(bz,(rollIn)*5.5*dt);                    // RIGHT stick X: roll (left = tilt left, right = tilt right)
     if(f._boosting&&f.boost>0){ f.v.addScaledVector(bz,1700*dt); f.boost=Math.max(0,f.boost-42*dt); }
     f._jump=false;
   }
@@ -15308,18 +15345,27 @@ function updateDrive(dt){
   f.boost=Math.min(100,f.boost+dt*7);
   const cH=_driveH(f.p.x,f.p.z); if(f.p.y<cH-60){ f.p.y=cH-60; if(f.v.y<0)f.v.y=0; }
   // apply to model + visible suspension travel
-  bg.grp.position.copy(f.p); bg.grp.quaternion.copy(f.q);
+  bg.grp.position.copy(f.p); bg.grp.quaternion.copy(f.q); bg.grp.position.y+=6;
   const wheelSpin=f.v.dot(fwd)/RW + (onG?thr*9:0); for(const w of bg.wheels) w.rotation.x += wheelSpin*dt*(w._s||1);
-  for(const c of bg.corners){ const L=(c._L!==undefined?c._L:SUSP); const ang=clamp((SUSP-L)*0.014,-0.24,0.24); c.piv.rotation.z=ang*Math.sign(c.piv.scale.x||1); }
+  { const _wgp=new THREE.Vector3();
+    for(const c of bg.corners){ if(!c.wg) continue;
+      c.wg.getWorldPosition(_wgp);
+      const gy=_driveH(_wgp.x,_wgp.z)+RW;            // wheel-center should sit one radius above ground
+      const gap=_wgp.y-gy;                            // +floating above / -clipping below
+      const sx=(c.piv.scale.x>=0)?1:-1, arm=(c.HX||16);
+      let tgt=c.piv.rotation.z-(gap/arm)*sx;          // swing arm to move wheel ~ -gap vertically
+      tgt=clamp(tgt,-0.6,0.6);                         // travel limit (droops in air)
+      c.piv.rotation.z+=(tgt-c.piv.rotation.z)*0.45;  // ease for stability
+    } }
   // chase camera
   const hf = onG? fwd.clone() : (function(){ const d=new THREE.Vector3(0,0,1).applyQuaternion(f.q); d.y*=0.25; if(d.lengthSq()<1e-4)d.set(0,0,1); return d.normalize(); })();
   const camTgt=f.p.clone().addScaledVector(hf,-330); camTgt.y+=165;
   camera.position.lerp(camTgt,Math.min(1,dt*3));
   camera.lookAt(f.p.x+hf.x*55,f.p.y+30,f.p.z+hf.z*55);
   // terrain follow + sculpt
-  if(f.terr){ const T=f.terr, cl=T.cell; T.mesh.position.set(Math.round(f.p.x/cl)*cl,0,Math.round(f.p.z/cl)*cl);
+  if(f.terr){ const T=f.terr, cl=T.cell; T.mesh.position.set(Math.round(f.p.x/cl)*cl,0,Math.round(f.p.z/cl)*cl); if(T.fill)T.fill.position.copy(T.mesh.position);
     const pos=T.geo.attributes.position, col=T.geo.attributes.color, nn=pos.count, ox=T.mesh.position.x, oz=T.mesh.position.z;
-    for(let i=0;i<nn;i++){ const wx=ox+pos.getX(i), wz=oz+pos.getZ(i), h=_driveH(wx,wz); pos.setY(i,h); const u=clamp((h+120)/240,0,1); col.setXYZ(i,0.12+u*0.7,0.5+u*0.4,0.35+(1-u)*0.55); }
+    for(let i=0;i<nn;i++){ const wx=ox+pos.getX(i), wz=oz+pos.getZ(i), h=_driveH(wx,wz); pos.setY(i,h); const u=clamp((h+490)/980,0,1); col.setXYZ(i,0.12+u*0.7,0.5+u*0.4,0.35+(1-u)*0.55); }
     pos.needsUpdate=true; col.needsUpdate=true; }
   const bf=document.getElementById('buggy-boost-fill'); if(bf)bf.style.width=f.boost.toFixed(0)+'%';
 }
@@ -18694,12 +18740,15 @@ function _updateCityDome(dt){
   if(typeof _vizLevel==='function') _vizLevel();
   let sum=0; if(typeof _vizFFT!=='undefined' && _vizFFT && _vizFFT.data){ for(let i=6;i<30;i++) sum+=_vizFFT.data[i]; }
   v.frame++;
-  if(sum>0){ const diff=Math.abs(sum-v.prevSum); v.prevSum=sum; v.targetJump=Math.max(diff/1.5,(sum/24)/10)*1.8; }
-  else v.targetJump=50+Math.sin(v.frame*0.2)*40;
+  if(sum>0){ const diff=Math.abs(sum-v.prevSum); v.prevSum=sum; v.targetJump=Math.max(diff/3.0,(sum/24)/10)*1.1; }   // lean on the steady level, less on twitchy transients; lower gain = subtler
+  else v.targetJump=30+Math.sin(v.frame*0.12)*16;                                                                   // gentler, slower idle breathe
   const rv=v.rv, NR=v.NR;
-  rv[0]=Math.abs(rv[0]+(v.targetJump-rv[0])*0.15);
-  for(let j=1;j<NR;j++) rv[j]=Math.abs(rv[j]+(rv[j-1]-rv[j])*0.25);
-  v.rotCounter++;
+  rv[0]=Math.abs(rv[0]+(v.targetJump-rv[0])*0.09);                                   // smooth source (ring 0)
+  if(!v.hist){ v.hist=new Float32Array(512); v.hpos=0; }                             // DELAY LINE: outer rings echo the source a few frames later ->
+  v.hist[((v.hpos%512)+512)%512]=rv[0];                                              //   a clean wave that travels to the arm TIP at full amplitude (no die-off)
+  const DLY=2; for(let j=1;j<NR;j++){ const idx=((v.hpos-j*DLY)%512+512)%512; rv[j]=v.hist[idx]; }
+  v.hpos++;
+  v.rotCounter+=0.05;                                                                // auto-rotation slowed way down (was +1.0/frame); set 0 to stop fully
   // ── emit the flat mandala (spokes + rings), identical to the room version ──
   const pos=v.pos, col=v.col; let p=0,c=0;
   const D2R=Math.PI/180, DIST=5, OVER=50, BASE=200, CS=3;
@@ -20278,8 +20327,9 @@ window._launchLevel=function(idx){
 };
 
 window._launchSurvival=function(){
+  window._onslaughtArena=false;
   document.getElementById('overlay').style.display='none';
-  startGame(-5);   // survival = the transition framework (door-gated escalating waves)
+  startGame(-5);   // survival = clean flat-grid round framework (construct → round → gate → deconstruct → rebuild)
 };
 
 window._selectChar=function(idx){
