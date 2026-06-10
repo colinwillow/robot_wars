@@ -1812,6 +1812,28 @@ function _fixRobotMaterials(root){
   });
 }
 
+// Trim a dead, static tail off a one-shot clip. A "take" padded out to the full playhead
+// (e.g. 120f) but whose motion ends at ~30f will otherwise hold its last pose for the
+// padded remainder. We find where motion actually stops (values stop changing) and cut there.
+function _trimClipTail(clip, eps=1e-4){
+  if(!clip||!clip.tracks||!clip.tracks.length) return clip;
+  let end=0;
+  for(const t of clip.tracks){
+    const times=t.times, vals=t.values, n=times.length; if(n<2) continue;
+    const stride=vals.length/n, fs=(n-1)*stride;
+    for(let i=n-1;i>=0;i--){ let d=0; for(let c=0;c<stride;c++){ const x=vals[i*stride+c]-vals[fs+c]; d+=x*x; } if(d>eps*eps){ const te=times[Math.min(i+1,n-1)]; if(te>end)end=te; break; } }
+  }
+  if(end>0 && end < clip.duration-0.1){
+    for(const t of clip.tracks){
+      const times=t.times, vals=t.values, n=times.length, stride=vals.length/n;
+      let keep=n; for(let i=0;i<n;i++){ if(times[i]>end+1e-4){ keep=i+1; break; } }
+      if(keep<n){ t.times=times.slice(0,keep); t.values=vals.slice(0,keep*stride); }
+    }
+    clip.duration=end; if(clip.resetDuration) clip.resetDuration();
+  }
+  return clip;
+}
+
 function loadRobotGLB(){
   if(_robotLoadPromise) return _robotLoadPromise;
   _robotLoadPromise=new Promise((resolve)=>{ // never reject — just resolve null on failure
@@ -2142,6 +2164,7 @@ function _applyRobotModel(player, gltf){
     const raw=clip.name;
     const name=raw.split('|').pop().split(':').pop();   // strip "Armature|idle" / "rig:idle" -> "idle"
     if(raw==='CINEMA_4D_Main'||name.toLowerCase()==='main') return; // skip default/NLA take
+    if(name.toLowerCase().includes('melee')) _trimClipTail(clip);
     const action=mixer.clipAction(clip);
     const isOneShot=['landing','dive_roll','roll','dash','dive'].some(n=>name.includes(n));
     if(isOneShot){
@@ -13924,6 +13947,7 @@ function loop(ts){ requestAnimationFrame(loop);
           if((player._meleeComboT||0)<=0) player._meleeCombo=0;     // window lapsed -> restart the combo
           player._meleeCombo=(player._meleeCombo>=3)?1:(player._meleeCombo+1);
           const _mname='melee_'+player._meleeCombo;
+          if(!_ud0.clips[_mname] && !player._warnedMelee){ player._warnedMelee=_mname; if(typeof announce==='function') announce(_mname.toUpperCase()+' NOT IN GLB','#ff5555'); }
           const _mclip=_ud0.clips[_mname]||_ud0.clips['melee_1'];
           if(_mclip){
             const _spd=_MELEE_SPEED||1;
