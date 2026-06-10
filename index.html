@@ -19074,6 +19074,7 @@ function _updateBootStation(dt){
 }
 // ════════ NEON ROBOT SLEDGEHAMMER — test power-up (equips to the right hand bone) ════════
 const _HAMMER_FIX=new THREE.Euler(-0.6,0,0);          // resting tilt in the fist (tunable)
+let _HAMMER_SCALE=1.7;                                // equipped world-size (matches the power-up station's 1.7); was overshooting at 4.35
 const _HAMMER_POS=new THREE.Vector3(0,0.5,0);         // model-relative seat offset (tunable)
 function _makeRoboHammer(){
   const g=new THREE.Group();
@@ -19113,7 +19114,7 @@ function _orientHammer(){
   const bq=new THREE.Quaternion(); h._hand.getWorldQuaternion(bq);
   h.quaternion.copy(bq.clone().invert().multiply(desired));
   const bs=new THREE.Vector3(); h._hand.getWorldScale(bs);
-  const inv=(1/(Math.abs(bs.x)||1))*4.35; h.scale.setScalar(inv);
+  const inv=(1/(Math.abs(bs.x)||1))*_HAMMER_SCALE; h.scale.setScalar(inv);
   const Ph=h._hand.getWorldPosition(new THREE.Vector3());
   const wo=_HAMMER_POS.clone().applyQuaternion(mq).multiplyScalar(Math.abs(bs.x)||1);
   h.position.copy(h._hand.worldToLocal(Ph.add(wo)));
@@ -21136,25 +21137,5 @@ try{ init(); requestAnimationFrame(loop); }catch(e){ console.error('Init failed:
   window.addEventListener('error',e=>addLine('error',[e.message+' '+e.filename+':'+e.lineno]));
 })();
 </script>
-<!-- ===== INSTALL HINT — iOS "Add to Home Screen" prompt. DELETE THIS WHOLE BLOCK when shipping the native App Store build. ===== -->
-<script>
-(function(){
-  try{
-    var standalone = (window.navigator.standalone===true) || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
-    var ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
-    if(standalone || !ios) return;                              // already installed, or not iOS Safari -> no hint
-    try{ if(sessionStorage.getItem('robits_hide_install')==='1') return; }catch(e){}
-    var bar=document.createElement('div');
-    bar.id='install-hint';
-    bar.style.cssText='position:fixed;left:8px;right:8px;top:calc(env(safe-area-inset-top,0px) + 8px);z-index:99999;display:flex;align-items:center;gap:9px;padding:9px 11px;border:1px solid #2f7fa0;border-radius:12px;background:rgba(8,20,30,0.92);color:#cdeefb;font:600 11.5px/1.35 Orbitron,system-ui,sans-serif;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);box-shadow:0 4px 20px rgba(0,0,0,0.55);';
-    bar.innerHTML='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6fdcff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 12v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7"/></svg>'+
-      '<span style="flex:1;">Play fullscreen: tap <b>Share</b>, choose <b>Add to Home Screen</b>, then open <b>ROBITS</b> from your home screen.</span>'+
-      '<span id="install-x" style="font-size:18px;padding:2px 7px;cursor:pointer;color:#7fd0c2;flex:none;">&times;</span>';
-    document.body.appendChild(bar);
-    document.getElementById('install-x').addEventListener('click',function(){ try{sessionStorage.setItem('robits_hide_install','1');}catch(e){} bar.remove(); });
-  }catch(e){}
-})();
-</script>
-<!-- ===== END INSTALL HINT ===== -->
 </body>
 </html>
