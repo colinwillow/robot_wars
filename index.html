@@ -13657,7 +13657,13 @@ function loop(ts){ requestAnimationFrame(loop);
           if(ud._rollingTimer<0) ud._rollingTimer=0; // never go negative
         }
         // Tick melee one-shot (blocks locomotion) + combo chain window
-        if(ud._meleeTimer>0){ ud._meleeTimer-=dt; if(ud._meleeTimer<=0){ ud._meleeTimer=0; ud.currentClip=null; } }
+        if(ud._meleeTimer>0){
+          ud._meleeTimer-=dt;
+          const _mv=Math.hypot(player.vx||0,player.vz||0);
+          const _committed=(ud._meleeMax||0)-ud._meleeTimer;          // time elapsed in this swing
+          if(_committed>0.16 && _mv>60) ud._meleeTimer=0;             // moving past the commit window -> run out of it
+          if(ud._meleeTimer<=0){ ud._meleeTimer=0; ud.currentClip=null; player._rollAimLock=false; }   // release -> blend picks idle/run
+        }
         if(player._meleeComboT>0){ player._meleeComboT-=dt; if(player._meleeComboT<0) player._meleeComboT=0; }
 
         // Landing detection — was airborne, now on ground (debounced)
@@ -13911,7 +13917,7 @@ function loop(ts){ requestAnimationFrame(loop);
         const _fvel=_fmag-(player._flickPrevMag||0); player._flickPrevMag=_fmag;
         if(_fmag<_MELEE_FLICK_LO) player._flickArmed=true;
         const _ud0=player.model&&player.model.userData;
-        if(player._flickArmed && _fmag>_MELEE_FLICK_HI && _fvel>_MELEE_FLICK_VEL && _ud0&&_ud0.clips&&!_ud0._meleeTimer){
+        if(player._flickArmed && _fmag>_MELEE_FLICK_HI && _fvel>_MELEE_FLICK_VEL && _ud0&&_ud0.clips){   // interruptible: a new flick chains/cancels the current swing
           player._flickArmed=false;
           const _ws=rotInput(shootIn.x,shootIn.y);
           player.aim=Math.atan2(_ws.z,_ws.x);                       // orient toward the flick direction
@@ -13920,14 +13926,16 @@ function loop(ts){ requestAnimationFrame(loop);
           const _mname='melee_'+player._meleeCombo;
           const _mclip=_ud0.clips[_mname]||_ud0.clips['melee_1'];
           if(_mclip){
-            const _mdur=(_mclip._clip&&_mclip._clip.duration)||0.6;
-            Object.values(_ud0.clips).forEach(a=>a.fadeOut(0.08));
-            _mclip.reset().setEffectiveWeight(1).setEffectiveTimeScale(1.0).setLoop(THREE.LoopOnce,1);
-            _mclip.clampWhenFinished=true; _mclip.fadeIn(0.08).play();
-            _ud0.currentClip=_mname; _ud0._meleeTimer=_mdur;
-            player._meleeComboT=_mdur+0.6;                          // window to chain the next hit
+            const _spd=_MELEE_SPEED||1;
+            const _mdur=(((_mclip._clip&&_mclip._clip.duration)||0.6)/_spd);
+            // hard-stop everything else (proven clean swap, like the dive-roll) -> no lingering blend that holds a pose
+            Object.values(_ud0.clips).forEach(a=>{ if(a!==_mclip){ a.stop(); a.setEffectiveWeight(0); } });
+            _mclip.reset().setEffectiveWeight(1).setEffectiveTimeScale(_spd).setLoop(THREE.LoopOnce,1);
+            _mclip.clampWhenFinished=true; _mclip.play();
+            _ud0.currentClip=_mname; _ud0._meleeTimer=_mdur; _ud0._meleeMax=_mdur;
+            player._meleeComboT=_mdur+0.7;                          // window to chain the next hit
             player._flickCooldown=Math.ceil(_mdur*60)+2;            // suppress the fire shot during the swing
-            player._rollAimLock=true; const _ml=player; setTimeout(()=>{ if(_ml)_ml._rollAimLock=false; }, _mdur*1000);
+            player._rollAimLock=true;                               // released by the melee tick when the swing ends
             if(typeof Audio!=='undefined'&&Audio.blip) Audio.blip(200,0.10,'square',0.18,520);
           }
         }
@@ -19131,6 +19139,7 @@ let _HAMMER_SCALE=1.7;                                // equipped world-size (ma
 let _MELEE_FLICK_HI=0.78;   // stick must snap past this to fire a melee
 let _MELEE_FLICK_LO=0.30;   // stick must return below this to re-arm the next flick
 let _MELEE_FLICK_VEL=0.16;  // min per-frame snap speed (separates a flick from a slow aim push)
+let _MELEE_SPEED=1.25;      // swing playback speed (higher = snappier, shorter lock)
 const _HAMMER_POS=new THREE.Vector3(0,0.5,0);         // model-relative seat offset (tunable)
 function _makeRoboHammer(){
   const g=new THREE.Group();
