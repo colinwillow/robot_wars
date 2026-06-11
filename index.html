@@ -13854,23 +13854,29 @@ function loop(ts){ requestAnimationFrame(loop);
           const _mv=Math.hypot(player.vx||0,player.vz||0);
           const _committed=(ud._meleeMax||0)-ud._meleeTimer;          // time elapsed in this swing
           if(_committed>0.16 && _mv>60) ud._meleeTimer=0;             // moving past the commit window -> run out of it
-          // ── MELEE CONNECT — frontal arc, once per swing; 1=light shove, 2=harder, 3=home-run launch ──
-          if(_committed>0.06 && !ud._meleeHitDone){
-            ud._meleeHitDone=true;
+          // ── MELEE CONNECT — true swept collision off the blade (hand->weapon_direction), once per target per swing ──
+          if(_committed>0.02){
+            if(!ud._meleeHitSet) ud._meleeHitSet=new Set();
             const tier=player._meleeCombo||1; let mag,lift,stn,dmg;
             if(tier>=3){ mag=8; lift=540; stn=30; dmg=3; }
             else if(tier===2){ mag=12; lift=0; stn=22; dmg=2; }
             else { mag=8; lift=0; stn=16; dmg=1; }
-            const REACH=64, ARCdot=Math.cos(1.05), ax=Math.cos(player.aim), az=Math.sin(player.aim);
-            let _connected=false;
-            const _hitOne=(e)=>{ if(!e||!e.alive||e===player)return; const dx=e.wx-player.wx, dz=e.wz-player.wz, d=Math.hypot(dx,dz); if(d>REACH+(e.size||14))return; if(d>1 && ((dx/d)*ax+(dz/d)*az)<ARCdot)return; _connected=true; if(e.hit)e.hit(dmg); if(e.knock)e.knock(e.wx-player.wx,e.wz-player.wz,mag,lift,stn); };
-            if(typeof GS!=='undefined'&&GS.enemies) GS.enemies.forEach(_hitOne);
-            if(typeof GS_bots!=='undefined') GS_bots.forEach(_hitOne);
-            if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy) _hitOne(GS_trainingDummy);
-            if(_connected && typeof addTrauma==='function') addTrauma(tier>=3?0.14:0.05);
-            if(_connected && typeof Audio!=='undefined'&&Audio.blip) Audio.blip(tier>=3?90:150,0.1,'square',0.2,tier>=3?60:600);
+            // blade segment this frame: base=hand bone, tip=weapon_direction; fall back to fist / in-front when unarmed
+            let bx,by,bz, ax2,ay2,az2;
+            const _bp=(typeof _slashBladePoints==='function')?_slashBladePoints():null;
+            if(_bp){ ax2=_bp[0].x; ay2=_bp[0].y; az2=_bp[0].z; bx=_bp[1].x; by=_bp[1].y; bz=_bp[1].z; }
+            else { const bn=player.model&&player.model.userData&&player.model.userData.bones, hb=bn&&(bn['mixamorig_RightHand']||bn['mixamorig_LeftHand']); if(hb){ const hp=hb.getWorldPosition(new THREE.Vector3()); ax2=hp.x; ay2=hp.y; az2=hp.z; } else { ax2=player.wx; ay2=(player.py||0)+16; az2=player.wz; } bx=ax2+Math.cos(player.aim)*34; by=ay2; bz=az2+Math.sin(player.aim)*34; }
+            // blade-tip velocity -> knock direction (send them the way the blade was moving)
+            const pv=ud._meleePrevTip; ud._meleePrevTip={x:bx,z:bz};
+            let kvx=pv?(bx-pv.x):0, kvz=pv?(bz-pv.z):0;
+            const HIT_R=(tier>=3?22:18);
+            const _seg=(px,py,pz)=>{ const dx=bx-ax2,dy=by-ay2,dz=bz-az2, L2=dx*dx+dy*dy+dz*dz||1; let t=((px-ax2)*dx+(py-ay2)*dy+(pz-az2)*dz)/L2; t=t<0?0:(t>1?1:t); return Math.hypot(px-(ax2+dx*t),py-(ay2+dy*t),pz-(az2+dz*t)); };
+            const _try=(e)=>{ if(!e||!e.alive||e===player||ud._meleeHitSet.has(e))return; const ey=(e.mesh?e.mesh.position.y:(e.py||0))+10; if(_seg(e.wx,ey,e.wz)>HIT_R+(e.size||14))return; ud._meleeHitSet.add(e); if(e.hit)e.hit(dmg); let dx=kvx,dz=kvz; if(dx*dx+dz*dz<1){ dx=e.wx-player.wx; dz=e.wz-player.wz; } if(e.knock)e.knock(dx,dz,mag,lift,stn); if(typeof addTrauma==='function')addTrauma(tier>=3?0.14:0.05); if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(tier>=3?90:150,0.1,'square',0.2,tier>=3?60:600); };
+            if(typeof GS!=='undefined'&&GS.enemies) GS.enemies.forEach(_try);
+            if(typeof GS_bots!=='undefined') GS_bots.forEach(_try);
+            if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy) _try(GS_trainingDummy);
           }
-          if(ud._meleeTimer<=0){ ud._meleeTimer=0; ud._meleeHitDone=false; ud.currentClip=null; player._rollAimLock=false; }   // release -> blend picks idle/run
+          if(ud._meleeTimer<=0){ ud._meleeTimer=0; ud._meleeHitDone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null; ud.currentClip=null; player._rollAimLock=false; }   // release -> blend picks idle/run
         }
         if(player._meleeComboT>0){ player._meleeComboT-=dt; if(player._meleeComboT<0) player._meleeComboT=0; }
 
@@ -19373,7 +19379,7 @@ function _doMeleeFlick(ud, dirAngle){
   mc.clampWhenFinished=true; mc.setEffectiveWeight(1); mc.play();
   if(prev){ if(!prev.isRunning()) prev.play(); prev.setEffectiveWeight(1); prev.fadeOut(0.15); }
   Object.values(ud.clips).forEach(a=>{ if(a!==mc && a!==prev) a.fadeOut(0.10); });
-  ud.currentClip=mname; ud._meleeTimer=mdur; ud._meleeMax=mdur; ud._meleeHitDone=false;
+  ud.currentClip=mname; ud._meleeTimer=mdur; ud._meleeMax=mdur; ud._meleeHitDone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null;
   player._meleeComboT=Math.max(mdur,0.45)+0.9;
   player._flickCooldown=8;
   player._rollAimLock=true;
