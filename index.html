@@ -19960,6 +19960,16 @@ let _SLASH_TRAIL_LIFE=0.13;   // seconds a ribbon segment lingers
 const _SLASH_TRAIL_MAX=16;
 let _SLASH_ARC_LIFE=0.20;
 const _SLASHFX={ trail:null, samples:[], arcs:[] };
+// each melee weapon gets its OWN slash: accent color + a distinct swoosh shape
+const _SLASH_PROFILES={
+  sword:  {col:0x9ffff0, rgb:[0.55,1.00,0.95], A:1.15, R:24, TH:9,  scale:1.00},   // clean crescent
+  hammer: {col:0x7fffe6, rgb:[0.50,1.00,0.90], A:0.85, R:20, TH:18, scale:1.20},   // heavy short smash
+  axe:    {col:0xffb066, rgb:[1.00,0.66,0.34], A:1.50, R:32, TH:16, scale:1.12},   // big chunky cleave
+  spear:  {col:0xc6ff8a, rgb:[0.72,1.00,0.50], A:0.30, R:42, TH:5,  scale:1.00},   // narrow forward thrust
+  scythe: {col:0xd0a0ff, rgb:[0.80,0.56,1.00], A:2.00, R:34, TH:12, scale:1.18},   // long wide reap
+};
+function _slashProfile(){ const t=(player&&player._meleeType)||'sword'; return _SLASH_PROFILES[t]||_SLASH_PROFILES.sword; }
+function _slashBrighten(hex,a){ const r=(hex>>16)&255,g=(hex>>8)&255,b=hex&255; return (Math.round(r+(255-r)*a)<<16)|(Math.round(g+(255-g)*a)<<8)|Math.round(b+(255-b)*a); }
 function _slashBladePoints(){
   const h=player&&player._hammer; if(!h||!player.model) return null;
   player.model.updateWorldMatrix(true,true);
@@ -19995,7 +20005,8 @@ function _updateSlashTrail(dt){
   if(M<2){ t.visible=false; return; }
   t.visible=true;
   const pos=t.geometry.attributes.position.array, col=t.geometry.attributes.color.array;
-  const tier=(player._meleeCombo||1), bc=tier>=3?[1.0,0.95,0.55]:[0.55,1.0,0.95];
+  const _prof=_slashProfile(); const tier=(player._meleeCombo||1);
+  const bc=tier>=3?[Math.min(1,_prof.rgb[0]*0.5+0.5),Math.min(1,_prof.rgb[1]*0.5+0.5),Math.min(1,_prof.rgb[2]*0.5+0.5)]:_prof.rgb;
   let vi=0, ci=0;
   const put=(pt,f,edge)=>{ pos[vi++]=pt.x; pos[vi++]=pt.y; pos[vi++]=pt.z; const e=edge*f; col[ci++]=bc[0]*e; col[ci++]=bc[1]*e; col[ci++]=bc[2]*e; };
   for(let i=0;i<M-1;i++){
@@ -20010,13 +20021,14 @@ function _updateSlashTrail(dt){
   t.geometry.boundingSphere=null;
 }
 function _makeSlashArc(tier){
-  const A=(tier>=3?1.55:1.15), R=(tier>=3?36:24), TH=(tier>=3?15:9), N=26;
+  const prof=_slashProfile(), big=(tier>=3);
+  const A=prof.A*(big?1.25:1), R=prof.R*(big?1.32:1), TH=prof.TH*(big?1.5:1), N=28;
   const pos=[], idx=[];
   for(let i=0;i<=N;i++){ const ta=i/N, ang=-A+ta*2*A, taper=Math.sin(ta*Math.PI), ro=R, ri=R-TH*taper; pos.push(Math.cos(ang)*ro,Math.sin(ang)*ro,0, Math.cos(ang)*ri,Math.sin(ang)*ri,0); }
   for(let i=0;i<N;i++){ const a=i*2; idx.push(a,a+1,a+2, a+1,a+3,a+2); }
   const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3)); g.setIndex(idx);
-  const m=new THREE.MeshBasicMaterial({color:tier>=3?0xfff0b0:0x9ffff0,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
-  const mesh=new THREE.Mesh(g,m); mesh.frustumCulled=false; mesh.renderOrder=7; return mesh;
+  const m=new THREE.MeshBasicMaterial({color:big?_slashBrighten(prof.col,0.5):prof.col,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
+  const mesh=new THREE.Mesh(g,m); mesh.frustumCulled=false; mesh.renderOrder=7; mesh._profScale=prof.scale||1; return mesh;
 }
 function _spawnSlashArc(tier){
   if(typeof scene==='undefined'||!player) return;
@@ -20032,7 +20044,7 @@ function _updateSlashArcs(dt){
     if(k>=1){ scene.remove(m); m.geometry&&m.geometry.dispose(); m.material&&m.material.dispose(); _SLASHFX.arcs.splice(i,1); continue; }
     m.quaternion.copy(camera.quaternion);
     m.rotateZ(m._roll - k*0.45*Math.sign(m._roll||1));
-    m.scale.setScalar((m._tier>=3?1.05:0.85)*(0.65+k*0.7));
+    m.scale.setScalar((m._profScale||1)*(m._tier>=3?1.05:0.85)*(0.65+k*0.7));
     const o=1-k; m.material.opacity=0.95*o*o;
   }
 }
