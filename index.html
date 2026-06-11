@@ -886,6 +886,23 @@ renderer.toneMapping=THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure=1.1;
 app.appendChild(renderer.domElement);
 
+// ── WebGL context-loss recovery — iOS can reclaim the GPU under memory pressure ──
+(function(){
+  const cv=renderer.domElement;
+  cv.addEventListener('webglcontextlost', function(e){
+    e.preventDefault();                 // keep the page alive; let the browser try to restore
+    window._glLost=true;                // render loop stops drawing -> no error spam on a dead context
+    let o=document.getElementById('gl-lost');
+    if(!o){
+      o=document.createElement('div'); o.id='gl-lost';
+      o.style.cssText='position:fixed;inset:0;z-index:300000;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(2,6,14,0.96);color:#7fd0ff;font-family:Orbitron,monospace;text-align:center;padding:24px;';
+      o.innerHTML='<div style="font-size:16px;letter-spacing:3px;color:#33ddff;margin-bottom:12px;">GRAPHICS RESET</div><div style="font-size:12px;opacity:0.85;max-width:300px;line-height:1.6;margin-bottom:20px;">The GPU dropped the game (usually low memory). Tap to reload.</div><button style="background:#00ffc822;border:1px solid #00ffc8aa;color:#00ffc8;font:13px Orbitron,monospace;padding:11px 26px;border-radius:10px;" onclick="location.reload()">RELOAD</button>';
+      document.body.appendChild(o);
+    } else o.style.display='flex';
+  }, false);
+  cv.addEventListener('webglcontextrestored', function(){ location.reload(); }, false);  // cleanest recovery for a single-file game: fresh load rebuilds all GPU state
+})();
+
 // Post-processing initializes async after game starts
 
 // initPostProcessing called after scene+camera init below
@@ -6112,6 +6129,7 @@ class DropBomb{
     if((GS.zone===-6||GS.zone===-7) && _arenaObstacles.length){
       for(const o of _arenaObstacles){ if(o.t>=0.5 && this.y<o.h+6 && Math.abs(this.wx-o.x)<o.w*0.5+6 && Math.abs(this.wz-o.z)<o.d*0.5+6){ this.detonate(); return false; } }
     }
+    if(typeof GS_bots!=='undefined'){ for(const _b of GS_bots){ if(_b.alive && Math.hypot(this.wx-_b.wx,this.wz-_b.wz)<(_b.size||20)+8 && Math.abs((this.y||0)-(_b.py||0))<44){ this.detonate(); return false; } } }
     if(this.timer<=0){ this.detonate(); return false; }
     return true;
   }
@@ -7872,8 +7890,8 @@ class Missile{
         }
       }
     }
-    if(typeof GS_bots!=='undefined') for(const bot of GS_bots){
-      if(bot.alive) bot.checkBombHit(this.wx,this.wz,BLAST);
+    if(typeof GS_bots!=='undefined') for(const _bot of GS_bots){
+      if(_bot.alive){ const _bd=Math.hypot(_bot.wx-this.wx,_bot.wz-this.wz); if(_bd<BLAST){ _bot.hit(Math.max(1,Math.ceil(this.dmg*(1-_bd/BLAST)))); _bot.knock(_bot.wx-this.wx,_bot.wz-this.wz, 3, 0, 6); } }
     }
     // Hit training dummy — rockets do big sway (dmg=18 → force=216)
     // Use dummy position as "from" so push is always away from dummy center
@@ -10015,17 +10033,18 @@ class BotPilot{
   _renderStunned(dt){
     if(this.model){
       this.model.position.set(this.wx,this.py,this.wz);
-      const sp=Math.hypot(this._kbVx,this._kbVz);
-      if(this._launched && sp>0.2){
-        const ang=Math.atan2(this._kbVz,this._kbVx);
-        this.model.rotation.y=-ang+Math.PI/2;
+      if(this._launched){
+        const sp=Math.hypot(this._kbVx,this._kbVz);
+        const ang=(sp>0.2)?Math.atan2(this._kbVz,this._kbVx):this.aim;
+        this._tumble=(this._tumble||0)+dt*7;                 // head-over-heels twirl through the arc
+        this.model.rotation.set(this._tumble, -ang+Math.PI/2, 0);
       } else {
-        this.model.rotation.y=-this.aim+Math.PI/2;
+        this.model.rotation.set(0, -this.aim+Math.PI/2, 0);  // upright while downed / getting up
       }
     }
     if(this._mixer) this._mixer.update(dt);
     if(this._clips){
-      const want=this._launched?(this._clips['floating']?'floating':'idle'):'idle';
+      const want=this._launched?(this._clips['floating']?'floating':'idle'):(this._clips['landing']?'landing':'idle');
       if(want!==this._clips._cur && this._clips[want]){
         Object.values(this._clips).forEach(a=>{ if(typeof a.fadeOut==='function') a.fadeOut(0.12); });
         this._clips[want].reset().setEffectiveWeight(1).fadeIn(0.12).play();
@@ -10073,21 +10092,30 @@ class BotPilot{
     if(this._dashCD>0) this._dashCD--;
     this.stateT=Math.max(0,this.stateT-1);
 
-    // ── KNOCKBACK / STUN (Smash-style launch + recover) ──
+    // ── KNOCKBACK / STUN (Smash-style parabolic launch + recover) ──
     if(this._stun>0) this._stun--;
     if(this._kbVx||this._kbVz){
       this.wx+=this._kbVx; this.wz+=this._kbVz;
-      this._kbVx*=0.88; this._kbVz*=0.88;
+      const _air=(this.py>2)||this._launched;
+      const _dec=_air?0.992:0.85;                       // glide through the air (parabola), slide-stop on the ground
+      this._kbVx*=_dec; this._kbVz*=_dec;
       if(Math.abs(this._kbVx)<0.05&&Math.abs(this._kbVz)<0.05){ this._kbVx=0; this._kbVz=0; }
       if(GS.zone!==-6&&GS.zone!==-7){
         const zc=zoneCenter(GS.zone), edge=ARENA_R-20;
         const d2=Math.hypot(this.wx-zc.x,this.wz-zc.z);
         if(d2>edge){ this.wx=zc.x+(this.wx-zc.x)/d2*edge; this.wz=zc.z+(this.wz-zc.z)/d2*edge; this._kbVx*=0.3; this._kbVz*=0.3; }
       }
+      if(typeof resolveObstacles==='function') resolveObstacles(this,16);   // can't be knocked through buildings
     }
-    if((this._stun>0)||this._launched){
+    if((this._stun>0)||this._launched||((this._downT||0)>0)){
       if(this.py>0||this.pvy>0){ this.pvy-=320*dt; this.py=Math.max(0,this.py+this.pvy*dt); if(this.py<=0){this.py=0;this.pvy=0;} }
-      if(this._launched && this.py<=0 && this._stun<=0 && Math.hypot(this._kbVx,this._kbVz)<1.0) this._launched=false;
+      if(this._launched && this.py<=0 && (this.pvy||0)<=0){     // landed from a launch -> brief downed / get-up
+        this._launched=false; this._downT=0.45; this._tumble=0;
+        if(typeof ps!=='undefined'){ ps.burst(this.wx,this.wz,[1,0.8,0.4],12,95); if(ps.ring)ps.ring(this.wx,this.wz,[1,0.6,0.2],9,75); }
+        if(typeof addTrauma==='function')addTrauma(0.06);
+        if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(90,0.18,'sine',0.25,70);
+      }
+      if((this._downT||0)>0){ this._downT-=dt; if(this._downT<0)this._downT=0; }
       this._renderStunned(dt);
       return;
     }
@@ -10174,6 +10202,7 @@ class BotPilot{
       if(d2>edge){ nx=zc.x+(nx-zc.x)/d2*edge; nz=zc.z+(nz-zc.z)/d2*edge; }
     }
     this.wx=nx; this.wz=nz;
+    if(typeof resolveObstacles==='function') resolveObstacles(this,16);   // walk into buildings, not through them
 
     // ── AIM — lead player at higher difficulties ──
     const leadT={rookie:0, soldier:0.1, elite:0.2}[this.diff];
@@ -10257,7 +10286,7 @@ class BotPilot{
     if(d<R){
       this.hit(Math.max(1,Math.ceil((R-d)/15)));
       const sN=Math.max(0,(R-d)/R);
-      this.knock(this.wx-bx, this.wz-bz, 8+sN*12, 80+sN*100, 26+sN*24);
+      this.knock(this.wx-bx, this.wz-bz, 7+sN*11, 70+sN*80, 24+sN*26);
     }
   }
 }
@@ -14872,7 +14901,8 @@ function loop(ts){ requestAnimationFrame(loop);
       scene.fog.color.lerp(new THREE.Color(gc[0]*0.05+b+od,gc[1]*0.025+b*0.5,gc[2]*0.06+b),0.02);
     }
     // Update post-processing
-    if(window.LIGHT_MODE){
+    if(window._glLost){ /* GPU context lost — skip drawing until reload */ }
+    else if(window.LIGHT_MODE){
       _lightModeFrame();
       renderer.render(scene,camera);
     } else if(window._gfxPerf){
