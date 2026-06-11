@@ -10012,6 +10012,11 @@ class BotPilot{
   // Smash-style knockback: horizontal impulse (+optional vertical launch) + control-lock
   knock(dirX,dirZ,mag,lift=0,stun=0){
     const d=Math.hypot(dirX,dirZ)||1, nx=dirX/d, nz=dirZ/d;
+    // SMASH-STYLE: the weaker the target, the farther a hit sends it
+    const hpFrac=(this.maxHp>0)?Math.max(0,Math.min(1,(this.hp||0)/this.maxHp)):1;
+    const vuln=1+(1-hpFrac)*1.7;                  // ~1x full health -> ~2.7x near death
+    mag*=vuln; lift=Math.min(lift*vuln,1100);      // cap the moon-shot
+    const knockdown=(lift>=160);                   // only a strong enough launch knocks you off your feet
     if(typeof ps!=='undefined'){
       ps.burst(this.wx,this.wz,[1,1,1],8,70,(this.py||0)+12);
       if(ps.ring) ps.ring(this.wx,this.wz,[1,0.6,0.2],8,60);
@@ -10022,7 +10027,8 @@ class BotPilot{
     this._kbVz=(this._kbVz||0)+nz*mag;
     const sp=Math.hypot(this._kbVx,this._kbVz), CAP=26;
     if(sp>CAP){ this._kbVx=this._kbVx/sp*CAP; this._kbVz=this._kbVz/sp*CAP; }
-    if(lift>0){ this.pvy=Math.max(this.pvy||0,lift); this._launched=true; }
+    if(knockdown){ this.pvy=Math.max(this.pvy||0,lift); this._launched=true; }   // knocked DOWN
+    // else: knocked BACK only -> stays on feet, just shoved + stunned
     if(stun>0) this._stun=Math.max(this._stun||0,stun);
     this._reactionPending=false;   // interrupt any pending AI decision
     this.shieldActive=false;       // knocked out of shield
@@ -10058,7 +10064,7 @@ class BotPilot{
     }
     if(this._mixer) this._mixer.update(dt);
     if(this._clips){
-      const want=this._launched?(this._clips['flying']?'flying':(this._clips['floating']?'floating':'idle')):(this._clips['get_up']?'get_up':(this._clips['landing']?'landing':'idle'));
+      const want=this._launched?(this._clips['flying']?'flying':(this._clips['floating']?'floating':'idle')):(((this._downT||0)>0)?(this._clips['get_up']?'get_up':(this._clips['landing']?'landing':'idle')):'idle');
       if(want!==this._clips._cur && this._clips[want]){
         Object.values(this._clips).forEach(a=>{ if(typeof a.fadeOut==='function') a.fadeOut(0.12); });
         this._clips[want].reset().setEffectiveWeight(1).fadeIn(0.12).play();
@@ -13848,7 +13854,23 @@ function loop(ts){ requestAnimationFrame(loop);
           const _mv=Math.hypot(player.vx||0,player.vz||0);
           const _committed=(ud._meleeMax||0)-ud._meleeTimer;          // time elapsed in this swing
           if(_committed>0.16 && _mv>60) ud._meleeTimer=0;             // moving past the commit window -> run out of it
-          if(ud._meleeTimer<=0){ ud._meleeTimer=0; ud.currentClip=null; player._rollAimLock=false; }   // release -> blend picks idle/run
+          // ── MELEE CONNECT — frontal arc, once per swing; 1=light shove, 2=harder, 3=home-run launch ──
+          if(_committed>0.06 && !ud._meleeHitDone){
+            ud._meleeHitDone=true;
+            const tier=player._meleeCombo||1; let mag,lift,stn,dmg;
+            if(tier>=3){ mag=8; lift=540; stn=30; dmg=3; }
+            else if(tier===2){ mag=12; lift=0; stn=22; dmg=2; }
+            else { mag=8; lift=0; stn=16; dmg=1; }
+            const REACH=54, ARCdot=Math.cos(1.0), ax=Math.cos(player.aim), az=Math.sin(player.aim);
+            let _connected=false;
+            const _hitOne=(e)=>{ if(!e||!e.alive||e===player)return; const dx=e.wx-player.wx, dz=e.wz-player.wz, d=Math.hypot(dx,dz); if(d>REACH+(e.size||14))return; if(d>1 && ((dx/d)*ax+(dz/d)*az)<ARCdot)return; _connected=true; if(e.hit)e.hit(dmg); if(e.knock)e.knock(e.wx-player.wx,e.wz-player.wz,mag,lift,stn); };
+            if(typeof GS!=='undefined'&&GS.enemies) GS.enemies.forEach(_hitOne);
+            if(typeof GS_bots!=='undefined') GS_bots.forEach(_hitOne);
+            if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy) _hitOne(GS_trainingDummy);
+            if(_connected && typeof addTrauma==='function') addTrauma(tier>=3?0.14:0.05);
+            if(_connected && typeof Audio!=='undefined'&&Audio.blip) Audio.blip(tier>=3?90:150,0.1,'square',0.2,tier>=3?60:600);
+          }
+          if(ud._meleeTimer<=0){ ud._meleeTimer=0; ud._meleeHitDone=false; ud.currentClip=null; player._rollAimLock=false; }   // release -> blend picks idle/run
         }
         if(player._meleeComboT>0){ player._meleeComboT-=dt; if(player._meleeComboT<0) player._meleeComboT=0; }
 
@@ -19339,7 +19361,7 @@ function _doMeleeFlick(ud, dirAngle){
   mc.clampWhenFinished=true; mc.setEffectiveWeight(1); mc.play();
   if(prev){ if(!prev.isRunning()) prev.play(); prev.setEffectiveWeight(1); prev.fadeOut(0.15); }
   Object.values(ud.clips).forEach(a=>{ if(a!==mc && a!==prev) a.fadeOut(0.10); });
-  ud.currentClip=mname; ud._meleeTimer=mdur; ud._meleeMax=mdur;
+  ud.currentClip=mname; ud._meleeTimer=mdur; ud._meleeMax=mdur; ud._meleeHitDone=false;
   player._meleeComboT=Math.max(mdur,0.45)+0.9;
   player._flickCooldown=8;
   player._rollAimLock=true;
