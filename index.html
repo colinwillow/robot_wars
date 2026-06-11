@@ -1832,22 +1832,30 @@ function _fixRobotMaterials(root){
 // Trim a dead, static tail off a one-shot clip. A "take" padded out to the full playhead
 // (e.g. 120f) but whose motion ends at ~30f will otherwise hold its last pose for the
 // padded remainder. We find where motion actually stops (values stop changing) and cut there.
-function _trimClipTail(clip, eps=1e-4){
+function _trimClipTail(clip){
+  // C4D/Blender exports often bake every take to the full timeline (e.g. 4.1s), so a
+  // 0.6s run cycle holds its last pose frozen for ~3.5s -> the model "freezes mid-run"
+  // and one-shots (landing/flip) clamp on a dead tail. We find where real motion stops
+  // (per track, frame-to-frame change vs that track's own range) and SHORTEN the clip's
+  // playable duration to there. We only change clip.duration (no track surgery): the mixer
+  // loops/clamps at duration, so the padded tail is simply never sampled. Idempotent.
   if(!clip||!clip.tracks||!clip.tracks.length) return clip;
-  let end=0;
-  for(const t of clip.tracks){
-    const times=t.times, vals=t.values, n=times.length; if(n<2) continue;
-    const stride=vals.length/n, fs=(n-1)*stride;
-    for(let i=n-1;i>=0;i--){ let d=0; for(let c=0;c<stride;c++){ const x=vals[i*stride+c]-vals[fs+c]; d+=x*x; } if(d>eps*eps){ const te=times[Math.min(i+1,n-1)]; if(te>end)end=te; break; } }
+  if(clip._motionTrimmed) return clip;
+  clip._motionTrimmed=true;
+  let tEnd=0;
+  for(const tr of clip.tracks){
+    const times=tr.times, vals=tr.values, n=times.length; if(n<3) continue;
+    const stride=vals.length/n;
+    let range=0;
+    for(let k=0;k<stride;k++){ let mn=Infinity,mx=-Infinity; for(let i=0;i<n;i++){ const v=vals[i*stride+k]; if(v<mn)mn=v; if(v>mx)mx=v; } const r=mx-mn; if(r>range)range=r; }
+    if(range<1e-5) continue;                       // fully static track -> ignore
+    const thr=range*0.015;                         // 1.5% of this track's motion range
+    let lastMove=0;
+    for(let i=1;i<n;i++){ let d=0; for(let k=0;k<stride;k++){ const df=Math.abs(vals[i*stride+k]-vals[(i-1)*stride+k]); if(df>d)d=df; } if(d>thr) lastMove=i; }
+    const te=times[Math.min(lastMove+1,n-1)];      // first settled frame = real motion end
+    if(te>tEnd) tEnd=te;
   }
-  if(end>0 && end < clip.duration-0.1){
-    for(const t of clip.tracks){
-      const times=t.times, vals=t.values, n=times.length, stride=vals.length/n;
-      let keep=n; for(let i=0;i<n;i++){ if(times[i]>end+1e-4){ keep=i+1; break; } }
-      if(keep<n){ t.times=times.slice(0,keep); t.values=vals.slice(0,keep*stride); }
-    }
-    clip.duration=end; if(clip.resetDuration) clip.resetDuration();
-  }
+  if(tEnd>0.1 && tEnd<clip.duration-0.05){ clip.duration=tEnd; }   // shorten only, never lengthen
   return clip;
 }
 
@@ -1858,6 +1866,7 @@ function loadRobotGLB(){
     loader.load(ROBOT_GLB, gltf=>{
       _robotGltf=gltf;
       _fixRobotMaterials(gltf.scene);
+      try{ (gltf.animations||[]).forEach(_trimClipTail); }catch(e){ console.warn('clip trim failed',e); }   // cut padded static tails -> no more freeze-mid-run / frozen landing
       window._cachedRobotGltf=gltf; // cache for title screen viewer
       console.log('Robot loaded. Animations:',gltf.animations.map(a=>a.name));
       resolve(gltf);
