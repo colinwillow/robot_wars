@@ -7618,9 +7618,9 @@ window._updateRobitStrip=_updateRobitStrip;
 function _updateBootsToggle(playing){
   let el=document.getElementById('boots-equip-toggle');
   if(!el){ el=document.createElement('div'); el.id='boots-equip-toggle';
-    el.style.cssText='position:fixed;left:8px;top:96px;z-index:121;display:none;align-items:center;gap:6px;padding:6px 10px;border-radius:10px;font:bold 10px Orbitron,monospace;letter-spacing:1px;cursor:pointer;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);user-select:none;';
+    el.style.cssText='position:fixed;left:8px;bottom:calc(max(env(safe-area-inset-bottom),28px) + 290px);z-index:121;display:none;align-items:center;gap:6px;padding:6px 10px;border-radius:10px;font:bold 10px Orbitron,monospace;letter-spacing:1px;cursor:pointer;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);user-select:none;';
     el.innerHTML='<span style="font-size:14px;">\u26a1</span><span id="bteq-tx"></span>';
-    const tap=(ev)=>{ ev.preventDefault(); ev.stopPropagation(); if(player&&player._hasBoots){ player._bootsEquipped=!player._bootsEquipped; if(player._wallClimb&&!player._bootsEquipped) player._wallClimb=null; if(typeof Audio!=='undefined')Audio.blip(player._bootsEquipped?660:300,0.08,'square',0.14,player._bootsEquipped?900:200); } };
+    const tap=(ev)=>{ ev.preventDefault(); ev.stopPropagation(); if(player&&player._hasBoots){ player._bootsEquipped=!player._bootsEquipped; if(player._boots){ for(const b of player._boots) b.visible=player._bootsEquipped; } if(player._wallClimb&&!player._bootsEquipped) player._wallClimb=null; if(typeof Audio!=='undefined')Audio.blip(player._bootsEquipped?660:300,0.08,'square',0.14,player._bootsEquipped?900:200); } };
     el.addEventListener('touchstart',tap,{passive:false}); el.addEventListener('click',tap);
     document.body.appendChild(el); }
   const show=!!playing && player && player._hasBoots;
@@ -19505,6 +19505,7 @@ function _makeRoboHammer(){
   const core=new THREE.Mesh(new THREE.BoxGeometry(6.0,1.4,11.4),MAG); core.position.y=13.6; g.add(core);
   // angular bevel chunks (exaggerated mech look)
   for(const sz of [-1,1]){ const cut=new THREE.Mesh(new THREE.ConeGeometry(2.6,3.2,4),METAL); cut.rotation.z=Math.PI/2; cut.rotation.y=Math.PI/4; cut.position.set(0,13.6,sz*6.4); g.add(cut); }
+  g.userData._baseY=10.6; g.userData._tipY=16.6;   // slash-trail traces the HEAD (big striking end), not the handle
   g.traverse(o=>{ o.frustumCulled=false; });
   return g;
 }
@@ -19536,6 +19537,7 @@ function _makeRoboSword(){
   tip.add(new THREE.Mesh(new THREE.ConeGeometry(BW*0.82,3.4,4),EDGE));
   const aura=new THREE.Mesh(new THREE.PlaneGeometry(BW*2.5,BLEN+3.5),new THREE.MeshBasicMaterial({color:0x33ddff,transparent:true,opacity:0.15,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
   aura.position.y=BMID; g.add(aura);
+  g.userData._baseY=2.7; g.userData._tipY=B1+2.5;   // slash-trail traces the blade edge (guard -> tip)
   g.traverse(o=>{ o.frustumCulled=false; });
   return g;
 }
@@ -19826,14 +19828,15 @@ const _SLASH_TRAIL_MAX=16;
 let _SLASH_ARC_LIFE=0.20;
 const _SLASHFX={ trail:null, samples:[], arcs:[] };
 function _slashBladePoints(){
-  const h=player&&player._hammer; if(!h||!h._hand||!player.model) return null;
+  const h=player&&player._hammer; if(!h||!player.model) return null;
   player.model.updateWorldMatrix(true,true);
-  const base=h._hand.getWorldPosition(new THREE.Vector3());
-  let dir;
-  if(h._dirBone){ dir=h._dirBone.getWorldPosition(new THREE.Vector3()).sub(base); }
-  else { dir=new THREE.Vector3(0,1,0).applyQuaternion(player.model.getWorldQuaternion(new THREE.Quaternion())); }
-  if(dir.lengthSq()<1e-6) dir.set(0,1,0); dir.normalize();
-  return [base, base.clone().addScaledVector(dir,_SLASH_BLADE_LEN)];
+  h.updateWorldMatrix(true,false);                                 // weapon model is already oriented (incl. _HAMMER_FIX + scale)
+  const ud=h.userData||{};
+  const baseY=(ud._baseY!=null)?ud._baseY:0;                       // sample the model's OWN local +Y axis -> trail matches the rendered blade/head
+  const tipY =(ud._tipY !=null)?ud._tipY :18;
+  const base=h.localToWorld(new THREE.Vector3(0,baseY,0));
+  const tip =h.localToWorld(new THREE.Vector3(0,tipY ,0));
+  return [base, tip];
 }
 function _ensureSlashTrail(){
   if(_SLASHFX.trail) return _SLASHFX.trail;
