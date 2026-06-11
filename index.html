@@ -8723,9 +8723,10 @@ class Player{
       } else if(GS.zone===-8){ this._skateHoriz(rawX,rawZ,dt); } else if(GS.zone===-10){ this._pipeHoriz(rawX,rawZ,dt); } else {
 
       const top=MOVE.topSpeed*speedMult*(od?1.25:1);
-      const tvx=this.inX*top, tvz=this.inZ*top;
+      let tvx=this.inX*top, tvz=this.inZ*top;
       const inMag=Math.hypot(rawX,rawZ);
-      const e = inMag>0.05 ? MOVE.velEaseUp : MOVE.velEaseDown;
+      let e = inMag>0.05 ? MOVE.velEaseUp : MOVE.velEaseDown;
+      if(this.model&&this.model.userData&&this.model.userData._meleeTimer>0){ tvx=0; tvz=0; e=Math.max(e,0.35); this._jumpTapped=false; }   // committed melee swing -> planted in place
       this.vx=lerp(this.vx,tvx,e); this.vz=lerp(this.vz,tvz,e);
 
       let nx=this.wx+this.vx*dt, nz=this.wz+this.vz*dt;
@@ -13851,9 +13852,8 @@ function loop(ts){ requestAnimationFrame(loop);
         // Tick melee one-shot (blocks locomotion) + combo chain window
         if(ud._meleeTimer>0){
           ud._meleeTimer-=dt;
-          const _mv=Math.hypot(player.vx||0,player.vz||0);
+          player._jumpTapped=false;                                   // committed swing: locked in, must finish (no run/jump cancel)
           const _committed=(ud._meleeMax||0)-ud._meleeTimer;          // time elapsed in this swing
-          if(_committed>0.16 && _mv>60) ud._meleeTimer=0;             // moving past the commit window -> run out of it
           // ── MELEE CONNECT — true swept collision off the blade (hand->weapon_direction), once per target per swing ──
           if(_committed>0.02){
             if(!ud._meleeHitSet) ud._meleeHitSet=new Set();
