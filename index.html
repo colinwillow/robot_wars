@@ -19352,7 +19352,9 @@ let _HAMMER_SCALE=1.7;                                // equipped world-size (ma
 let _MELEE_FLICK_HI=0.78;   // stick must snap past this to fire a melee
 let _MELEE_FLICK_LO=0.40;   // stick must ease back below this to re-arm the next flick (higher = easier fast chaining)
 let _MELEE_FLICK_VEL=0.16;  // min per-frame snap speed (separates a flick from a slow aim push)
-let _MELEE_SPEED=1.25;      // swing playback speed (higher = snappier, shorter lock)
+let _MELEE_SPEED=1.4;        // swing playback speed (higher = snappier)
+let _MELEE_TRIM_START=0.167;  // sec skipped off the START of each swing (~5 frames @30fps) -> no windup
+let _MELEE_TRIM_END=0.167;    // sec cut off the END (~5 frames) -> locomotion takes over sooner
 let _MELEE_FLICK_WINDOW_MS=160;  // a flick must snap out AND return within this many ms; holding longer = aim/fire instead
 function _doMeleeFlick(ud, dirAngle){
   if(!ud||!ud.clips||!player) return;
@@ -19372,10 +19374,14 @@ function _doMeleeFlick(ud, dirAngle){
   }
   if(!mc) return;
   const spd=_MELEE_SPEED||1;
-  const mdur=(((mc._clip&&mc._clip.duration)||0.6)/spd);
+  const fullDur=((mc._clip&&mc._clip.duration)||0.6);
+  const trimS=Math.min(_MELEE_TRIM_START||0, fullDur*0.3);
+  const trimE=Math.min(_MELEE_TRIM_END||0, fullDur*0.3);
+  const mdur=Math.max(fullDur*0.4, fullDur-trimS-trimE)/spd;
   // blend FROM the current pose INTO the swing: full weight from frame 1 (no bind-pose/T-pose gap), fade the previous out
   const prev=(ud.currentClip && ud.clips[ud.currentClip] && ud.clips[ud.currentClip]!==mc) ? ud.clips[ud.currentClip] : null;
   mc.reset().setEffectiveTimeScale(spd).setLoop(THREE.LoopOnce,1);
+  if(trimS>0) mc.time=trimS;   // skip the windup frames
   mc.clampWhenFinished=true; mc.setEffectiveWeight(1); mc.play();
   if(prev){ if(!prev.isRunning()) prev.play(); prev.setEffectiveWeight(1); prev.fadeOut(0.15); }
   Object.values(ud.clips).forEach(a=>{ if(a!==mc && a!==prev) a.fadeOut(0.10); });
@@ -19412,6 +19418,39 @@ function _makeRoboHammer(){
   g.traverse(o=>{ o.frustumCulled=false; });
   return g;
 }
+function _makeRoboSword(){
+  const g=new THREE.Group();
+  const STEEL=new THREE.MeshStandardMaterial({color:0xbfefff,metalness:0.88,roughness:0.16,emissive:0x1a90c0,emissiveIntensity:0.7});
+  const DARK =new THREE.MeshStandardMaterial({color:0x0e1c33,metalness:0.7,roughness:0.42,emissive:0x07142a,emissiveIntensity:0.45});
+  const EDGE =new THREE.MeshBasicMaterial({color:0x6cffff,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
+  const CORE =new THREE.MeshBasicMaterial({color:0xa6fcff,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false});
+  const MAG  =new THREE.MeshBasicMaterial({color:0xff2da0,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
+  const line =(geo,c)=>new THREE.LineSegments(new THREE.EdgesGeometry(geo),new THREE.LineBasicMaterial({color:c,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false}));
+  // ── grip (hand holds here, origin) ──
+  const grip=new THREE.Mesh(new THREE.CylinderGeometry(0.6,0.7,4.0,8),DARK); grip.position.y=0.5; g.add(grip);
+  for(const gy of [-0.5,0.6,1.7]){ const wrap=new THREE.Mesh(new THREE.TorusGeometry(0.72,0.12,6,12),MAG); wrap.rotation.x=Math.PI/2; wrap.position.y=gy; g.add(wrap); }
+  const pommel=new THREE.Mesh(new THREE.OctahedronGeometry(0.95,0),STEEL); pommel.position.y=-1.8; g.add(pommel);
+  pommel.add(new THREE.Mesh(new THREE.OctahedronGeometry(1.2,0),EDGE));
+  // ── crossguard (swept, magenta tips + gem) ──
+  const gGeo=new THREE.BoxGeometry(7.0,1.0,1.3);
+  const guard=new THREE.Mesh(gGeo,STEEL); guard.position.y=2.7; g.add(guard); guard.add(line(gGeo,0x9ffff0));
+  for(const sx of [-1,1]){ const t=new THREE.Mesh(new THREE.ConeGeometry(0.62,1.7,4),MAG); t.rotation.z=sx*Math.PI/2; t.position.set(sx*4.0,2.7,0); g.add(t); }
+  const gem=new THREE.Mesh(new THREE.OctahedronGeometry(0.85,0),MAG); gem.position.set(0,2.7,0.0); g.add(gem);
+  // ── blade (flat, double-edged) along +Y ──
+  const B0=3.4, B1=14.6, BW=2.2, BT=0.42, BLEN=B1-B0, BMID=(B0+B1)/2;
+  const bGeo=new THREE.BoxGeometry(BW,BLEN,BT);
+  const blade=new THREE.Mesh(bGeo,STEEL); blade.position.y=BMID; g.add(blade); blade.add(line(bGeo,0xcbffff));
+  for(const sx of [-1,1]){ const e=new THREE.Mesh(new THREE.BoxGeometry(0.34,BLEN,BT*1.12),EDGE); e.position.set(sx*(BW/2),BMID,0); g.add(e); }   // glowing edges
+  const core=new THREE.Mesh(new THREE.BoxGeometry(0.5,BLEN-1.6,BT*1.45),CORE); core.position.y=BMID; g.add(core);                                 // energy fuller
+  const tip=new THREE.Mesh(new THREE.ConeGeometry(BW*0.72,3.0,4),STEEL); tip.rotation.y=Math.PI/4; tip.position.y=B1+1.05; g.add(tip);
+  tip.add(new THREE.Mesh(new THREE.ConeGeometry(BW*0.82,3.4,4),EDGE));
+  const aura=new THREE.Mesh(new THREE.PlaneGeometry(BW*2.5,BLEN+3.5),new THREE.MeshBasicMaterial({color:0x33ddff,transparent:true,opacity:0.15,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
+  aura.position.y=BMID; g.add(aura);
+  g.traverse(o=>{ o.frustumCulled=false; });
+  return g;
+}
+window._meleeModel=window._meleeModel||'sword';   // 'sword' or 'hammer'
+function _makeMeleeWeapon(){ return (window._meleeModel==='hammer')?_makeRoboHammer():_makeRoboSword(); }
 function _orientHammer(){
   const h=player&&player._hammer; if(!h||!player.model||!h._hand) return;
   player.model.updateWorldMatrix(true,true);
@@ -19447,12 +19486,12 @@ function _collectHammer(){
   let ok=false;
   if(bones){
     const hand=bones['mixamorig_RightHand']||bones['mixamorig_LeftHand']||(function(){ for(const k in bones){ if(/hand/i.test(k)&&!/finger|thumb|index|middle|ring|pinky/i.test(k)) return bones[k]; } return null; })();
-    if(hand){ const hm=_makeRoboHammer(); hm._hand=hand; let _db=bones['weapon_direction']||bones['mixamorig_weapon_direction']; if(!_db){ for(const k in bones){ if(/weapon.*dir/i.test(k)){ _db=bones[k]; break; } } } if(!_db&&player.model){ player.model.traverse(o=>{ if(!_db && /weapon.*dir/i.test(o.name||'')) _db=o; }); } hm._dirBone=_db||null; window._hammerDirBone=!!_db; hand.add(hm); player._hammer=hm; _orientHammer(); ok=true; }
+    if(hand){ const hm=_makeMeleeWeapon(); hm._hand=hand; let _db=bones['weapon_direction']||bones['mixamorig_weapon_direction']; if(!_db){ for(const k in bones){ if(/weapon.*dir/i.test(k)){ _db=bones[k]; break; } } } if(!_db&&player.model){ player.model.traverse(o=>{ if(!_db && /weapon.*dir/i.test(o.name||'')) _db=o; }); } hm._dirBone=_db||null; window._hammerDirBone=!!_db; hand.add(hm); player._hammer=hm; _orientHammer(); ok=true; }
   }
   if(typeof ps!=='undefined'){ ps.burst(player.wx,player.wz,[1,0.2,0.7],34,170); ps.ring(player.wx,player.wz,[0.2,1,0.9],22,150); }
   if(typeof Audio!=='undefined'){ Audio.blip(160,0.18,'sawtooth',0.25,70); Audio.blip(420,0.12,'square',0.2,900); }
   if(typeof addTrauma==='function') addTrauma(0.18);
-  if(typeof announce==='function') announce(ok?('\u2692 SLEDGEHAMMER'+(window._hammerDirBone?' \u2014 aimed':' \u2014 no dir bone')):'NO HAND BONE FOUND', ok?'#33ffdd':'#ff5555');
+  if(typeof announce==='function') announce(ok?(((window._meleeModel==='hammer')?'\u2692 SLEDGEHAMMER':'\u2694 SWORD')+(window._hammerDirBone?' \u2014 aimed':' \u2014 no dir bone')):'NO HAND BONE FOUND', ok?'#33ffdd':'#ff5555');
   try{ const _ck=Object.keys((player.model&&player.model.userData&&player.model.userData.clips)||{}); const _sw=_ck.filter(k=>/_sword/.test(k)).length; console.log('SWORD clips loaded:',_sw,_ck.filter(k=>/_sword/.test(k))); if(typeof announce==='function') setTimeout(()=>announce('SWORD ANIMS: '+_sw+' loaded',_sw?'#33ffdd':'#ff5555'),750); }catch(e){}
   _removeHammerStation();
 }
@@ -19463,7 +19502,7 @@ function _spawnHammerStation(x,z){
   const ring2=new THREE.Mesh(new THREE.TorusGeometry(9,0.7,8,28),new THREE.MeshBasicMaterial({color:0x33ffdd,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false})); ring2.rotation.x=-Math.PI/2; ring2.position.y=2.2; grp.add(ring2);
   const disc=new THREE.Mesh(new THREE.CircleGeometry(14,32),new THREE.MeshBasicMaterial({color:0xaa1166,transparent:true,opacity:0.22,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); disc.rotation.x=-Math.PI/2; disc.position.y=0.5; grp.add(disc);
   const col=new THREE.Mesh(new THREE.CylinderGeometry(5,8,42,16,1,true),new THREE.MeshBasicMaterial({color:0xff2da0,transparent:true,opacity:0.10,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); col.position.y=21; grp.add(col);
-  const ham=_makeRoboHammer(); ham.scale.setScalar(1.7); ham.position.y=15; grp.add(ham);
+  const ham=_makeMeleeWeapon(); ham.scale.setScalar(1.7); ham.position.y=15; grp.add(ham);
   scene.add(grp);
   window._hammerStation={grp,ring,ring2,col,ham,x,z,t:0,collected:false};
 }
