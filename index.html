@@ -7617,9 +7617,9 @@ function _updateRobitStrip(playing){
 window._updateRobitStrip=_updateRobitStrip;
 function _updateBootsToggle(playing){
   let el=document.getElementById('boots-equip-toggle');
-  if(!el){ el=document.createElement('div'); el.id='boots-equip-toggle';
-    el.style.cssText='position:fixed;left:8px;bottom:calc(max(env(safe-area-inset-bottom),28px) + 290px);z-index:121;display:none;align-items:center;gap:6px;padding:6px 10px;border-radius:10px;font:bold 10px Orbitron,monospace;letter-spacing:1px;cursor:pointer;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);user-select:none;';
-    el.innerHTML='<span style="font-size:14px;">\u26a1</span><span id="bteq-tx"></span>';
+  if(!el){ el=document.createElement('button'); el.id='boots-equip-toggle'; el.setAttribute('aria-label','Wall Boots');
+    el.style.cssText='position:fixed;width:52px;height:52px;border-radius:10px;z-index:121;display:none;flex-direction:column;align-items:center;justify-content:center;gap:2px;pointer-events:all;font-family:inherit;background:rgba(0,0,0,0.4);border:1.5px solid #00ffaa88;color:#00ffaa;box-shadow:0 0 12px #00ffaa33;-webkit-tap-highlight-color:transparent;cursor:pointer;right:calc(max(env(safe-area-inset-right), 22px) + 75px - 26px);bottom:calc(max(env(safe-area-inset-bottom),28px) + 118px + 48px + 64px);';
+    el.innerHTML='<svg width="24" height="22" viewBox="0 0 24 22" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 3 L13 3 L13 13 L19 13 Q21 13 21 15.5 L21 18 L8 18 Z" fill="currentColor" opacity="0.92"/><path d="M13 14.6 L20.6 14.6" stroke="#04140e" stroke-width="1" opacity="0.55"/><path d="M5.6 5 L3.6 9.4 L5.3 9.4 L4.1 12.8" stroke="#ffe600" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/></svg><span id="bteq-tx" style="font-size:6px;letter-spacing:1px;text-transform:uppercase;opacity:0.85">BOOTS</span>';
     const tap=(ev)=>{ ev.preventDefault(); ev.stopPropagation(); if(player&&player._hasBoots){ player._bootsEquipped=!player._bootsEquipped; if(player._boots){ for(const b of player._boots) b.visible=player._bootsEquipped; } if(player._wallClimb&&!player._bootsEquipped) player._wallClimb=null; if(typeof Audio!=='undefined')Audio.blip(player._bootsEquipped?660:300,0.08,'square',0.14,player._bootsEquipped?900:200); } };
     el.addEventListener('touchstart',tap,{passive:false}); el.addEventListener('click',tap);
     document.body.appendChild(el); }
@@ -7628,10 +7628,11 @@ function _updateBootsToggle(playing){
   const on=!!player._bootsEquipped;
   if(player._boots){ for(const b of player._boots) b.visible=on; }   // toggle hides/shows the physical boots on the feet
   el.style.display='flex';
-  el.style.border='2px solid '+(on?'#00ffaa':'#446655');
-  el.style.background='rgba(6,20,16,'+(on?'0.72':'0.5')+')';
+  el.style.borderColor=on?'#00ffaa':'#557766';
   el.style.color=on?'#00ffaa':'#7faa99';
-  const tx=document.getElementById('bteq-tx'); if(tx) tx.textContent='WALL BOOTS '+(on?'ON':'OFF');
+  el.style.background=on?'rgba(6,30,22,0.5)':'rgba(0,0,0,0.4)';
+  el.style.boxShadow=on?'0 0 14px #00ffaa55':'0 0 8px #00000044';
+  const tx=document.getElementById('bteq-tx'); if(tx) tx.textContent='BOOTS';
 }
 window._updateBootsToggle=_updateBootsToggle;
 function _deployAlly(){
@@ -19610,7 +19611,11 @@ function _orientHandLauncher(obj,bone){
     const P1=dir.getWorldPosition(new THREE.Vector3());
     aim=P1.sub(P0); if(aim.lengthSq()<1e-8) aim.set(0,0,1); aim.normalize();
   } else { aim=new THREE.Vector3(0,0,1); }
-  const desired=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), aim);   // barrel +Z -> aim line
+  // upright basis: barrel(+Z)=aim line (follows the hand), up=world up -> stops the ~90° arbitrary roll
+  const _up=new THREE.Vector3(0,1,0);
+  let _right=new THREE.Vector3().crossVectors(_up,aim); if(_right.lengthSq()<1e-6) _right.set(1,0,0); _right.normalize();
+  const _up2=new THREE.Vector3().crossVectors(aim,_right).normalize();
+  const desired=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(_right,_up2,aim));
   const fx=window._HANDWPN_FIX; if(fx) desired.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(fx.x||0,fx.y||0,fx.z||0)));   // optional roll/tilt tweak
   obj.quaternion.copy(bq.clone().invert().multiply(desired));
   const bs=new THREE.Vector3(); bone.getWorldScale(bs);
