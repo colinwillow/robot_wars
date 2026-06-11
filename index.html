@@ -9074,7 +9074,7 @@ class Player{
     // Alternate between right and left hand each shot
     if(!this._shotSide) this._shotSide=0;
     this._shotSide=1-this._shotSide;
-    const handBone=this._shotSide===0?'mixamorig_RightHand':'mixamorig_LeftHand';
+    const handBone=this._hammer?'mixamorig_LeftHand':(this._shotSide===0?'mixamorig_RightHand':'mixamorig_LeftHand');
     let y0=9+this.py, spawnX=this.wx, spawnZ=this.wz;
     const bones=this.model?.userData?.bones;
     if(bones&&bones[handBone]){
@@ -13892,8 +13892,9 @@ function loop(ts){ requestAnimationFrame(loop);
         // ── FLIP ON JUMP ──
         const justLeftGround=airborne&&ud._prevAirborne===false&&player.pvy>50;
         if(justLeftGround&&ud.clips&&!ud._flippingTimer){
-          const frontFlip=ud.clips['front_flip']||ud.clips['frontflip'];
-          const backFlip=ud.clips['back_flip']||ud.clips['backflip'];
+          const _armedFlip=!!player._hammer;
+          const frontFlip=(_armedFlip&&ud.clips['front_flip_sword'])||ud.clips['front_flip']||ud.clips['frontflip'];
+          const backFlip=(_armedFlip&&ud.clips['back_flip_sword'])||ud.clips['back_flip']||ud.clips['backflip'];
           const flipClip=frontFlip||backFlip;
           if(flipClip){
             const mvMagForFlip=Math.hypot(player.vx,player.vz);
@@ -13904,7 +13905,8 @@ function loop(ts){ requestAnimationFrame(loop);
               useBack=Math.abs(diff)>Math.PI*0.6;
             }
             const chosen=useBack&&backFlip?backFlip:frontFlip||backFlip;
-            const chosenName=useBack&&backFlip?'back_flip':'front_flip';
+            const _flBase=useBack&&backFlip?'back_flip':'front_flip';
+            const chosenName=(_armedFlip&&ud.clips[_flBase+'_sword'])?(_flBase+'_sword'):_flBase;
             Object.values(ud.clips).forEach(a=>a.fadeOut(0.12));
             chosen.reset().setEffectiveWeight(1).setEffectiveTimeScale(1.0).setLoop(THREE.LoopOnce,1).fadeIn(0.12).play();
             chosen.clampWhenFinished=false;
@@ -14034,11 +14036,19 @@ function loop(ts){ requestAnimationFrame(loop);
           // Wall push: standard angleDiff works since aim is snapped to face wall on grab
           // No override needed — run_forward/backward/strafe all work correctly
 
-          // Apply .bomb/.shoot variants (combat zones only — skate has no weapon poses)
+          // Apply .bomb/.shoot/.sword variants (combat zones only — skate has no weapon poses)
           if(!_skateAnim){
             const bombArmed=player.bombArmed;
+            const meleeEquipped=!!player._hammer;
             const bombClip=targetClip.replace('_shoot','')+'_bomb';
             if(bombArmed&&ud.clips[bombClip]) targetClip=bombClip;
+            else if(meleeEquipped){
+              // holding the melee weapon -> _sword family; firing -> _sword_shoot (left-hand shoot, blade in right)
+              const swShoot=targetClip+'_sword_shoot', sw=targetClip+'_sword';
+              if((firing||wallPushing)&&ud.clips[swShoot]) targetClip=swShoot;
+              else if(ud.clips[sw]) targetClip=sw;
+              else { const sc=targetClip+'_shoot'; if((firing||wallPushing)&&ud.clips[sc]) targetClip=sc; }
+            }
             else {
               const shootClip=targetClip+'_shoot';
               if((firing||wallPushing)&&ud.clips[shootClip]) targetClip=shootClip;
@@ -14046,7 +14056,7 @@ function loop(ts){ requestAnimationFrame(loop);
           }
 
           // Fallback: strip suffixes if clip missing
-          if(!ud.clips[targetClip]) targetClip=targetClip.replace('_bomb','').replace('_shoot','');
+          if(!ud.clips[targetClip]) targetClip=targetClip.replace('_sword_shoot','').replace('_sword','').replace('_bomb','').replace('_shoot','');
           if(!ud.clips[targetClip]) targetClip='idle';
 
           if(window._animTest && ud.clips[window._animTest]) targetClip=window._animTest;   // DEBUG anim-test: force-play a clip to verify it loaded
