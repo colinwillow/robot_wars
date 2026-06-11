@@ -7626,6 +7626,7 @@ function _updateBootsToggle(playing){
   const show=!!playing && player && player._hasBoots;
   if(!show){ if(el.style.display!=='none')el.style.display='none'; return; }
   const on=!!player._bootsEquipped;
+  if(player._boots){ for(const b of player._boots) b.visible=on; }   // toggle hides/shows the physical boots on the feet
   el.style.display='flex';
   el.style.border='2px solid '+(on?'#00ffaa':'#446655');
   el.style.background='rgba(6,20,16,'+(on?'0.72':'0.5')+')';
@@ -8746,7 +8747,7 @@ class Player{
       let tvx=this.inX*top, tvz=this.inZ*top;
       const inMag=Math.hypot(rawX,rawZ);
       let e = inMag>0.05 ? MOVE.velEaseUp : MOVE.velEaseDown;
-      if(!window._meleeUpperBody && this.model&&this.model.userData&&this.model.userData._meleeTimer>0){ tvx=0; tvz=0; e=Math.max(e,0.35); this._jumpTapped=false; }   // full-body swing -> planted; upper-body mode lets the legs keep running
+      if(window._meleeLandLock && this.model&&this.model.userData&&this.model.userData._meleeTimer>0){ tvx=0; tvz=0; e=Math.max(e,0.35); this._jumpTapped=false; }   // land-lock (opt-in): plant in place for the swing
       this.vx=lerp(this.vx,tvx,e); this.vz=lerp(this.vz,tvz,e);
 
       let nx=this.wx+this.vx*dt, nz=this.wz+this.vz*dt;
@@ -13886,7 +13887,7 @@ function loop(ts){ requestAnimationFrame(loop);
         // Tick melee one-shot (blocks locomotion) + combo chain window
         if(ud._meleeTimer>0){
           ud._meleeTimer-=dt;
-          if(!window._meleeUpperBody) player._jumpTapped=false;       // full-body swing: locked in; upper-body mode allows jump/run during the swing
+          if(window._meleeLandLock) player._jumpTapped=false;        // land-lock (opt-in): block jump during the swing
           const _committed=(ud._meleeMax||0)-ud._meleeTimer;          // time elapsed in this swing
           // ── MELEE CONNECT — true swept collision off the blade (hand->weapon_direction), once per target per swing ──
           if(_committed>0.02){
@@ -19410,7 +19411,8 @@ let _MELEE_SPEED=1.4;        // swing playback speed (higher = snappier)
 let _MELEE_TRIM_START=0.167;  // sec skipped off the START of each swing (~5 frames @30fps) -> no windup
 let _MELEE_TRIM_END=0.167;    // sec cut off the END (~5 frames) -> locomotion takes over sooner
 let _MELEE_FLICK_WINDOW_MS=160;  // a flick must snap out AND return within this many ms; holding longer = aim/fire instead
-if(typeof window!=='undefined' && window._meleeUpperBody===undefined) window._meleeUpperBody=true;   // upper-body additive swing ON by default; set window._meleeUpperBody=false to land-lock the old full-body swing
+if(typeof window!=='undefined' && window._meleeUpperBody===undefined) window._meleeUpperBody=false;   // FULL-BODY swing (legs+torso play the whole clip). set true for the upper-body additive split.
+if(typeof window!=='undefined' && window._meleeLandLock===undefined) window._meleeLandLock=false;     // movement free during the swing. set true later (with short clips) to plant in place.
 // ── upper-body additive swing: clone the melee clip, drop leg/hip tracks, rebase as additive-over-idle, layer it on the running legs (no GLB split needed) ──
 const _MELEE_LOWER_RE=/(Hips|Leg|Foot|Toe)/i;   // bones EXCLUDED from the upper-body layer (legs/hips stay driven by locomotion)
 function _buildAdditiveMelee(ud,name){
@@ -19587,16 +19589,28 @@ function _makeHandLauncher(side){
   g.userData._side=side;
   return g;
 }
+function _resolveGunDir(){
+  const bones=player.model&&player.model.userData&&player.model.userData.bones; if(!bones) return null;
+  if(player._gunDirBonesRef===bones) return player._gunDirBone;       // cache per skeleton; re-resolve on model rebuild
+  let db=bones['weapon_direction']||bones['mixamorig_weapon_direction']||null;
+  if(!db){ for(const k in bones){ if(/weapon.*dir/i.test(k)){ db=bones[k]; break; } } }
+  if(!db&&player.model){ player.model.traverse(o=>{ if(!db&&/weapon.*dir/i.test(o.name||'')) db=o; }); }
+  player._gunDirBone=db||null; player._gunDirBonesRef=bones; return player._gunDirBone;
+}
 function _orientHandLauncher(obj,bone){
   if(!obj||!bone||!player||!player.model) return;
-  const mq=player.model.getWorldQuaternion(new THREE.Quaternion());
-  let fwd=new THREE.Vector3(0,0,1).applyQuaternion(mq); fwd.y=0; if(fwd.lengthSq()<1e-6)fwd.set(0,0,1); fwd.normalize();
-  const up=new THREE.Vector3(0,1,0);
-  const right=new THREE.Vector3().crossVectors(up,fwd); if(right.lengthSq()<1e-6)right.set(1,0,0); right.normalize();
-  const up2=new THREE.Vector3().crossVectors(fwd,right).normalize();
-  const desired=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right,up2,fwd));
+  const bones=player.model.userData.bones, dir=_resolveGunDir();
   const bq=new THREE.Quaternion(); bone.getWorldQuaternion(bq);
-  obj.quaternion.copy(bq.clone().invert().multiply(desired));      // point the barrel where the body faces (≈ aim)
+  let aim;
+  if(dir){
+    const rh=(bones&&bones['mixamorig_RightHand'])||bone;            // aim line tracks the hand through every animation
+    const P0=rh.getWorldPosition(new THREE.Vector3());
+    const P1=dir.getWorldPosition(new THREE.Vector3());
+    aim=P1.sub(P0); if(aim.lengthSq()<1e-8) aim.set(0,0,1); aim.normalize();
+  } else { aim=new THREE.Vector3(0,0,1); }
+  const desired=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), aim);   // barrel +Z -> aim line
+  const fx=window._HANDWPN_FIX; if(fx) desired.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(fx.x||0,fx.y||0,fx.z||0)));   // optional roll/tilt tweak
+  obj.quaternion.copy(bq.clone().invert().multiply(desired));
   const bs=new THREE.Vector3(); bone.getWorldScale(bs);
   obj.scale.setScalar((1/(Math.abs(bs.x)||1))*_LAUNCHER_SCALE);
 }
@@ -19985,7 +19999,10 @@ function _disposeSoundRoom(){
 function buildCityTest(){
   _disposeCityTest();
   _glGravOn=false; _cgBox=null; if(player) player._inPlanetGravity=false;
-  if(typeof MP!=='undefined' && MP.active && !MP.isHost){ try{ mpSend('event',{event:'city_req'}); }catch(e){} if(typeof _cityMakeTestUI==='function') _cityMakeTestUI(); return; }   // client: request & mirror the host layout
+  if(typeof MP!=='undefined' && MP.active && !MP.isHost){ try{ mpSend('event',{event:'city_req'}); }catch(e){} if(typeof _cityMakeTestUI==='function') _cityMakeTestUI();
+    _spawnBootStation(0,128); _spawnHammerStation(40,128,'sword'); _spawnHammerStation(100,128,'hammer');
+    _spawnWeaponPad(-50,128,'rockets'); _spawnWeaponPad(-100,128,'plasma'); _spawnWeaponPad(-150,128,'grenade');   // client gets its own local pickups (host doesn't broadcast these)
+    return; }   // client: request & mirror the host building layout
   const cell=30, pal='neon', mode=(typeof window!=='undefined' && window._cityMode)||'random';
   if(mode==='map'){ if(typeof window._cityLoadOSM==='function') window._cityLoadOSM(window._cityMapLat,window._cityMapLon,window._cityMapRadius); return; }
   if(mode==='grid'){
