@@ -6199,6 +6199,8 @@ class DropBomb{
       const d=Math.hypot(GS_trainingDummy.wx-this.wx,GS_trainingDummy.wz-this.wz);
       if(d<BLAST_R) GS_trainingDummy.hit(Math.ceil(45*(1-d/BLAST_R)),this.wx,this.wz);
     }
+    // BOT — big explosive launch (up-biased 45-ish arc, sends them flying + twirling)
+    if(typeof GS_bots!=='undefined') for(const _bot of GS_bots){ if(_bot.alive){ const _bd=Math.hypot(_bot.wx-this.wx,_bot.wz-this.wz); if(_bd<BLAST_R){ const _sN=Math.max(0,(BLAST_R-_bd)/BLAST_R); _bot.hit(Math.max(1,Math.ceil(_sN*8+2))); _bot.knock(_bot.wx-this.wx,_bot.wz-this.wz, 2+_sN*4, 160+_sN*180, 30+_sN*22); } } }
   }
 
   remove(){
@@ -6317,7 +6319,7 @@ class Grenade{
         if(e._ballCapable && e.alive && !e._ball && typeof e.enterBall==='function'){ const _bd=Math.max(3,Math.ceil(30*_prox+4)); const pts=e.hit(_bd); if(pts>0){ GS.score+=pts*GS.mult; GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); e.remove(); GS.enemies.splice(i,1); registerKill(e); if(typeof spawnDebris==='function')spawnDebris(e.wx,e.wz); } else { e.enterBall(e.wx-this.wx,e.wz-this.wz, 80+_prox*170, 130+_prox*150); } }
         else { const _bd=Math.max(3,Math.ceil(30*_prox+4)); const pts=e.hit(_bd); if(e.knock)e.knock(e.wx-this.wx,e.wz-this.wz,_bd,1.2+_prox*1.6,_prox*_prox*16); if(pts>0){ GS.score+=pts*GS.mult; GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); e.remove(); GS.enemies.splice(i,1); registerKill(e); } }
       } }
-    if(typeof GS_bots!=='undefined') for(const _bot of GS_bots){ if(_bot.alive) _bot.checkBombHit(this.wx,this.wz,BLAST_R); }
+    if(typeof GS_bots!=='undefined') for(const _bot of GS_bots){ if(_bot.alive){ const _gd=Math.hypot(_bot.wx-this.wx,_bot.wz-this.wz); if(_gd<BLAST_R){ const _gN=Math.max(0,(BLAST_R-_gd)/BLAST_R); _bot.hit(Math.max(1,Math.ceil(_gN*5+1))); _bot.knock(_bot.wx-this.wx,_bot.wz-this.wz, 2+_gN*2, 50+_gN*60, 26+_gN*16); } } }
     if(player&&player.alive){ const pd=Math.hypot(player.wx-this.wx,player.wz-this.wz); if(pd<BLAST_R*0.7){ const s=1-pd/(BLAST_R*0.7), vy=s*s*120; if(vy>10) player.pvy=Math.max(player.pvy||0,vy); } }
   }
   remove(){ if(this.mesh) scene.remove(this.mesh); if(this._tipMat)this._tipMat.dispose(); }
@@ -7891,7 +7893,7 @@ class Missile{
       }
     }
     if(typeof GS_bots!=='undefined') for(const _bot of GS_bots){
-      if(_bot.alive){ const _bd=Math.hypot(_bot.wx-this.wx,_bot.wz-this.wz); if(_bd<BLAST){ _bot.hit(Math.max(1,Math.ceil(this.dmg*(1-_bd/BLAST)))); _bot.knock(_bot.wx-this.wx,_bot.wz-this.wz, 3, 0, 6); } }
+      if(_bot.alive){ const _bd=Math.hypot(_bot.wx-this.wx,_bot.wz-this.wz); if(_bd<BLAST){ _bot.hit(Math.max(1,Math.ceil(this.dmg*(1-_bd/BLAST)))); _bot.knock(_bot.wx-this.wx,_bot.wz-this.wz, 3, 0, 26); } }
     }
     // Hit training dummy — rockets do big sway (dmg=18 → force=216)
     // Use dummy position as "from" so push is always away from dummy center
@@ -10097,7 +10099,7 @@ class BotPilot{
     if(this._kbVx||this._kbVz){
       this.wx+=this._kbVx; this.wz+=this._kbVz;
       const _air=(this.py>2)||this._launched;
-      const _dec=_air?0.992:0.85;                       // glide through the air (parabola), slide-stop on the ground
+      const _dec=_air?0.965:0.85;                       // glide through the air (parabola), slide-stop on the ground
       this._kbVx*=_dec; this._kbVz*=_dec;
       if(Math.abs(this._kbVx)<0.05&&Math.abs(this._kbVz)<0.05){ this._kbVx=0; this._kbVz=0; }
       if(GS.zone!==-6&&GS.zone!==-7){
@@ -10272,7 +10274,7 @@ class BotPilot{
     if(Math.hypot(b.wx-this.wx, b.wz-this.wz)<20&&Math.abs((b.y||9)-(this.py+15))<35){
       b.life=0;
       this.hit(b.dmg||1);
-      this.knock(this.wx-(b.wx||this.wx-1), this.wz-(b.wz||this.wz), 1.6, 0, 4);
+      this.knock(this.wx-(b.wx||this.wx-1), this.wz-(b.wz||this.wz), 1.6, 0, 22);
       return true;
     }
     return false;
