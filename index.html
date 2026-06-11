@@ -185,6 +185,15 @@ canvas{display:block}
 #btn-cycle:active{transform:scale(.92);background:rgba(0,255,200,0.12)}
 #btn-cycle svg{display:block}
 #btn-cycle .cycle-label{font-size:6px;letter-spacing:1.5px;text-transform:uppercase;opacity:0.8}
+/* Stow / draw melee weapon — stacked above the cycle button, only shown once a melee weapon is owned */
+#btn-stow{position:absolute;width:48px;height:48px;border-radius:10px;display:none;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  pointer-events:all;z-index:16;font-family:inherit;background:rgba(0,0,0,0.4);
+  border:1.5px solid #9fe8ff88;color:#cfeeff;box-shadow:0 0 12px #2aa0ff33;
+  -webkit-tap-highlight-color:transparent;cursor:pointer}
+#btn-stow:active{transform:scale(.92);background:rgba(40,120,180,0.18)}
+#btn-stow.drawn{border-color:#33ffddaa;color:#9ffff0;box-shadow:0 0 16px #33ffdd55}
+#btn-stow svg{display:block}
+#btn-stow .stow-label{font-size:6px;letter-spacing:1.2px;text-transform:uppercase;opacity:0.85}
 /* Shield button — next to bomb button above right stick */
 #btn-shield{position:absolute;width:48px;height:48px;border-radius:10px;display:none;flex-direction:column;align-items:center;justify-content:center;gap:2px;
   pointer-events:all;z-index:16;font-family:inherit;background:rgba(0,0,0,0.4);
@@ -712,6 +721,17 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
     <path d="M25 16 L21 16 L21 14 L18 17 L21 20 L21 18 L25 18 Z" fill="#00ffc8" opacity="0.7"/>
   </svg>
   <span class="cycle-label">CYCLE</span>
+</button>
+
+<!-- STOW / DRAW melee weapon — stacked above CYCLE, shown only once a sword/hammer is owned -->
+<button id="btn-stow" aria-label="Stow Weapon">
+  <svg width="26" height="22" viewBox="0 0 26 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M6 17 L17 6" stroke="#9fe8ff" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M16.5 5.5 L20.5 4 L19 8 Z" fill="#9fe8ff"/>
+    <path d="M5 15 L8 18 L6.5 19.5 L3.5 16.5 Z" fill="#9fe8ff" opacity="0.9"/>
+    <path d="M7 20 Q13 22 20 19.5" stroke="#9fe8ff" stroke-width="1.1" fill="none" opacity="0.45"/>
+  </svg>
+  <span class="stow-label">STOW</span>
 </button>
 
 
@@ -8726,7 +8746,7 @@ class Player{
       let tvx=this.inX*top, tvz=this.inZ*top;
       const inMag=Math.hypot(rawX,rawZ);
       let e = inMag>0.05 ? MOVE.velEaseUp : MOVE.velEaseDown;
-      if(this.model&&this.model.userData&&this.model.userData._meleeTimer>0){ tvx=0; tvz=0; e=Math.max(e,0.35); this._jumpTapped=false; }   // committed melee swing -> planted in place
+      if(!window._meleeUpperBody && this.model&&this.model.userData&&this.model.userData._meleeTimer>0){ tvx=0; tvz=0; e=Math.max(e,0.35); this._jumpTapped=false; }   // full-body swing -> planted; upper-body mode lets the legs keep running
       this.vx=lerp(this.vx,tvx,e); this.vz=lerp(this.vz,tvz,e);
 
       let nx=this.wx+this.vx*dt, nz=this.wz+this.vz*dt;
@@ -10695,6 +10715,18 @@ function startGame(levelIdx){
       },{passive:false});
     }
 
+    // STOW button — stacked above the CYCLE button (same left column), shown only once a melee weapon is owned
+    const stowBtn=document.getElementById('btn-stow');
+    if(stowBtn){
+      stowBtn.style.width=BTN_SIZE+'px'; stowBtn.style.height=BTN_SIZE+'px';
+      stowBtn.style.left='calc(max(env(safe-area-inset-left), 22px) + 75px - '+Math.round(BTN_SIZE/2)+'px)';
+      stowBtn.style.bottom='calc('+BTN_BOTTOM+' + '+(BTN_SIZE+12)+'px)';
+      stowBtn.style.right='';
+      const newStow=stowBtn.cloneNode(true);
+      stowBtn.parentNode.replaceChild(newStow,stowBtn);
+      newStow.addEventListener('touchstart',e=>{ e.preventDefault(); if(!player||GS.state!=='playing')return; if(typeof _toggleMeleeStow==='function')_toggleMeleeStow(); },{passive:false});
+    }
+
     // BOMB button — centered above right stick
     const bombBtn=document.getElementById('btn-bomb-arm');
     if(bombBtn){
@@ -10724,6 +10756,8 @@ function startGame(levelIdx){
     // Shield button hidden — auto-shield handles it
     const shieldBtn=document.getElementById('btn-shield');
     if(shieldBtn) shieldBtn.style.display='none';
+
+    if(typeof _updateStowButton==='function'){ const _sb=document.getElementById('btn-stow'); if(_sb)_sb._k=null; _updateStowButton(); }   // initial state (hidden until a weapon is owned)
 
   } // end if(IS_TOUCH)
 
@@ -13852,15 +13886,15 @@ function loop(ts){ requestAnimationFrame(loop);
         // Tick melee one-shot (blocks locomotion) + combo chain window
         if(ud._meleeTimer>0){
           ud._meleeTimer-=dt;
-          player._jumpTapped=false;                                   // committed swing: locked in, must finish (no run/jump cancel)
+          if(!window._meleeUpperBody) player._jumpTapped=false;       // full-body swing: locked in; upper-body mode allows jump/run during the swing
           const _committed=(ud._meleeMax||0)-ud._meleeTimer;          // time elapsed in this swing
           // ── MELEE CONNECT — true swept collision off the blade (hand->weapon_direction), once per target per swing ──
           if(_committed>0.02){
             if(!ud._meleeHitSet) ud._meleeHitSet=new Set();
             const tier=player._meleeCombo||1; let mag,lift,stn,dmg;
-            if(tier>=3){ mag=8; lift=540; stn=30; dmg=3; }
-            else if(tier===2){ mag=12; lift=0; stn=22; dmg=2; }
-            else { mag=8; lift=0; stn=16; dmg=1; }
+            if(tier>=3){ mag=18; lift=360; stn=34; dmg=3; }       // melee_3: finisher -> big launch AWAY (home-run)
+            else if(tier===2){ mag=5; lift=600; stn=26; dmg=2; }   // melee_2: upswing -> pop them straight UP
+            else { mag=9; lift=0; stn=16; dmg=1; }                 // melee_1: initial hit -> light shove, no launch
             // blade segment this frame: base=hand bone, tip=weapon_direction; fall back to fist / in-front when unarmed
             let bx,by,bz, ax2,ay2,az2;
             const _bp=(typeof _slashBladePoints==='function')?_slashBladePoints():null;
@@ -13876,7 +13910,7 @@ function loop(ts){ requestAnimationFrame(loop);
             if(typeof GS_bots!=='undefined') GS_bots.forEach(_try);
             if(typeof GS_trainingDummy!=='undefined'&&GS_trainingDummy) _try(GS_trainingDummy);
           }
-          if(ud._meleeTimer<=0){ ud._meleeTimer=0; ud._meleeHitDone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null; ud.currentClip=null; player._rollAimLock=false; }   // release -> blend picks idle/run
+          if(ud._meleeTimer<=0){ ud._meleeTimer=0; ud._meleeHitDone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null; if(player._meleeAdditive){ player._meleeAdditive.fadeOut(0.12); player._meleeAdditive=null; } else { ud.currentClip=null; } player._rollAimLock=false; }   // release -> upper-body swing fades arms back to locomotion; full-body re-picks idle/run
         }
         if(player._meleeComboT>0){ player._meleeComboT-=dt; if(player._meleeComboT<0) player._meleeComboT=0; }
 
@@ -13886,13 +13920,18 @@ function loop(ts){ requestAnimationFrame(loop);
           ud._flippingTimer=0; ud._flipToFloat=false; ud._flipToFloatT=0;
           if(ud._flipClipName&&ud.clips[ud._flipClipName]){ ud.clips[ud._flipClipName].stop(); ud.clips[ud._flipClipName].setEffectiveWeight(0); }
           if(ud.clips['landing']){
-            Object.values(ud.clips).forEach(a=>a.fadeOut(0.25));
+            Object.values(ud.clips).forEach(a=>a.fadeOut(0.18));
             const land=ud.clips['landing'];
-            land.reset().setEffectiveWeight(1).setLoop(THREE.LoopOnce,1);
+            const _full=(land._clip&&land._clip.duration)||0.4;
+            const _ts=Math.min((window._LAND_TRIM_START!=null?window._LAND_TRIM_START:0.08), _full*0.35);   // skip the windup frames off the START
+            const _te=Math.min((window._LAND_TRIM_END  !=null?window._LAND_TRIM_END  :0.12), _full*0.35);   // cut the settle tail off the END
+            const _ls=((window._LAND_SPEED!=null?window._LAND_SPEED:1.0))||1.0;                              // optional playback speed-up
+            land.reset().setEffectiveWeight(1).setEffectiveTimeScale(_ls).setLoop(THREE.LoopOnce,1);
+            if(_ts>0) land.time=_ts;
             land.clampWhenFinished=true;
-            land.fadeIn(0.25).play();
+            land.fadeIn(0.12).play();
             ud.currentClip='landing';
-            ud._landingTimer=land._clip?.duration||0.4;
+            ud._landingTimer=Math.max(_full*0.25, _full-_ts-_te)/_ls;   // end early -> locomotion takes over before the padded tail
           }
         }
         // ── FLIP ON JUMP ──
@@ -13966,7 +14005,7 @@ function loop(ts){ requestAnimationFrame(loop);
           ud._landingTimer-=dt;
           if(ud._landingTimer<=0){
             ud._landingTimer=0;
-            ud.clips['landing']&&ud.clips['landing'].fadeOut(0.3);
+            ud.clips['landing']&&ud.clips['landing'].fadeOut(0.18);
             ud.currentClip=null;
           }
         }
@@ -14017,7 +14056,7 @@ function loop(ts){ requestAnimationFrame(loop);
         }
 
         // Skip blend switch while roll, landing, climbing, or flipping
-        if(!ud._rollingTimer&&!ud._landingTimer&&!player._wallClimb&&!player._hang&&!player._crestSeq&&!ud._flippingTimer&&!ud._voidTumble&&!ud._meleeTimer){
+        if(!ud._rollingTimer&&!ud._landingTimer&&!player._wallClimb&&!player._hang&&!player._crestSeq&&!ud._flippingTimer&&!ud._voidTumble&&(window._meleeUpperBody||!ud._meleeTimer)){
           let targetClip='idle';
           let _skateAnim=false;
           if(GS.zone===-8||GS.zone===-10){
@@ -14346,6 +14385,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(player._boots&&player._boots.length&&window._reorientGameBoots){ const _bmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_bmv) window._reorientGameBoots(); }
       if(player._hammer&&window._reorientHammer){ if(player._hammer._dirBone){ window._reorientHammer(); } else { const _mt=(player.model&&player.model.userData&&player.model.userData._meleeTimer>0); const _hmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_hmv&&!_mt) window._reorientHammer(); } }   // re-baseline boots to the resting (idle) foot pose whenever standing still -> always correct, no panel needed
       if(typeof _updateSlashFX==='function') _updateSlashFX(dt);
+      if(typeof _updateHandLaunchers==='function') _updateHandLaunchers();
       if(GS.zone===-16) updateGrindRail(dt);
       { // ── DROP-THROUGH: HOLD the left stick down (a flick = dash) while on a platform ──
         const downHeld=(moveIn.y>0.55)||((keys['KeyS']||keys['ArrowDown'])&&!(keys['KeyW']||keys['ArrowUp']));
@@ -14864,12 +14904,24 @@ function loop(ts){ requestAnimationFrame(loop);
               player._hang=null; player.pvy=-20; player._wallClimbCooldown=18;
             } else if(Math.abs(cIx)>0.05){                            // shimmy along the lip
               const onXFace=hg.faceNX!==0;
-              if(onXFace) player.wz += hg.faceNX * cIx * LAT_SPD*0.6 * dt;
-              else        player.wx += (-hg.faceNZ) * cIx * LAT_SPD*0.6 * dt;
+              if(onXFace) player.wz += hg.faceNX * cIx * LAT_SPD*1.15 * dt;
+              else        player.wx += (-hg.faceNZ) * cIx * LAT_SPD*1.15 * dt;
               const latPos = onXFace ? (player.wz-t.wz) : (player.wx-t.wx);
               const halfLat= onXFace ? hd2 : hw2;
-              const clamped= Math.max(-(halfLat-EDGE_MARGIN), Math.min(halfLat-EDGE_MARGIN, latPos));
-              if(onXFace) player.wz=t.wz+clamped; else player.wx=t.wx+clamped;
+              if(Math.abs(latPos) > halfLat - EDGE_MARGIN){
+                // ── ROUND THE CORNER: keep hanging, swing onto the perpendicular face at the shared corner ──
+                const edgeSign=Math.sign(latPos)||1;
+                let nx,nz; if(onXFace){ nx=0; nz=edgeSign; } else { nx=edgeSign; nz=0; }
+                glueFace(nx,nz);
+                if(onXFace) player.wx = t.wx + hg.faceNX*(hw2 - CORNER_INSET);   // pull onto the new face just inside the corner
+                else        player.wz = t.wz + hg.faceNZ*(hd2 - CORNER_INSET);
+                hg.faceNX=nx; hg.faceNZ=nz; hg.t=0.02;                           // brief settle so we don't instantly mantle/drop
+                player.aim=Math.atan2(-nz,-nx);
+                if(typeof Audio!=='undefined')Audio.blip(380,0.06,'sine',0.10,520);
+              } else {
+                const clamped= Math.max(-(halfLat-EDGE_MARGIN), Math.min(halfLat-EDGE_MARGIN, latPos));
+                if(onXFace) player.wz=t.wz+clamped; else player.wx=t.wx+clamped;
+              }
             }
           }
 
@@ -17871,7 +17923,7 @@ let _glLastTN=new THREE.Vector3(0,0,1);   // last good tangent "north" (parallel
 let _glCubeN=new THREE.Vector3(0,1,0);   // current cube face the player is magnetised to
 let _glCamAzi=new THREE.Vector3(1,0,0);
 let _glCamDir=new THREE.Vector3(1,0.4,0).normalize();   // smoothed 3D orbit direction (keeps the player in front of the shape)
-let _occV=new THREE.Vector3(), _occW=new THREE.Vector3();   // camera-occlusion ghosting scratch
+let _occV=new THREE.Vector3(), _occW=new THREE.Vector3(), _occEnd=new THREE.Vector3();   // camera-occlusion ghosting scratch
 let _glCamLook=new THREE.Vector3();   // smoothed orbit-camera look target
 let _GL_CAM_D=420;   // planet camera zoom distance (bigger = more zoomed out)
 let _glCamSide=new THREE.Vector3(0,0,1);   // the SIDE face the camera's XZ position is anchored to
@@ -18053,8 +18105,10 @@ function _glGhostOccluders(){
   // (or the camera is inside it) -> tall towers stop blacking out the screen and stop vanishing when merely nearby.
   // Never fade the building you're crawling on.
   if(typeof _cityBoxes!=='undefined' && _cityBoxes.length){
+    const _PB=30;   // pull the player-end of the cam->player ray back toward the camera: a building you walk into / touch (on the FAR side of you from the camera) must NOT fade -> only true occluders between you and the camera ghost out
+    _occEnd.copy(camP).addScaledVector(seg, Math.max(8, segLen-_PB));
     for(const b of _cityBoxes){
-      const occ=(player._inPlanetGravity && b===_cgBox) ? false : _segHitsBox(camP,_occV, b.x,b.top/2,b.z, b.hw+12,b.top/2+12,b.hd+12);
+      const occ=(player._inPlanetGravity && b===_cgBox) ? false : _segHitsBox(camP,_occEnd, b.x,b.top/2,b.z, b.hw+8,b.top/2+12,b.hd+8);
       for(const s of b.sheets){
         s._ghost=(s._ghost||0)+((occ?1:0)-(s._ghost||0))*0.2;
         const g=s._ghost;
@@ -19332,7 +19386,7 @@ function _spawnBootStation(x,z){
   const disc=new THREE.Mesh(new THREE.CircleGeometry(14,32),new THREE.MeshBasicMaterial({color:0x00aa77,transparent:true,opacity:0.22,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); disc.rotation.x=-Math.PI/2; disc.position.y=0.5; grp.add(disc);
   const col=new THREE.Mesh(new THREE.CylinderGeometry(5,8,42,16,1,true),new THREE.MeshBasicMaterial({color:0x00ffaa,transparent:true,opacity:0.10,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); col.position.y=21; grp.add(col);
   const bL=_makeRoboBoot(-1), bR=_makeRoboBoot(1); const sc=3.0; bL.scale.setScalar(sc); bR.scale.setScalar(sc);
-  bL.position.set(-7,24,0); bR.position.set(7,24,0); bL.rotation.y=0.35; bR.rotation.y=-0.35;
+  bL.position.set(-7,24,0); bR.position.set(7,24,0); bL.rotation.y=0; bR.rotation.y=0;   // parallel pair, same facing -> reads clearly as boots
   grp.add(bL); grp.add(bR); scene.add(grp);
   window._bootStation={grp,ring,ring2,col,bL,bR,x,z,t:0,collected:false};
 }
@@ -19340,8 +19394,8 @@ function _removeBootStation(){ const st=window._bootStation; if(!st) return; if(
 function _updateBootStation(dt){
   const st=window._bootStation; if(!st||st.collected||!player) return;
   st.t+=dt; st.ring.rotation.z+=dt*0.7; st.ring2.rotation.z-=dt*1.1;
-  const bob=Math.sin(st.t*2.2)*1.6; st.bL.position.y=24+bob; st.bR.position.y=24-bob;
-  st.bL.rotation.y+=dt*0.9; st.bR.rotation.y-=dt*0.9;
+  const bob=Math.sin(st.t*2.2)*1.8; st.bL.position.y=24+bob; st.bR.position.y=24+bob;   // bob in sync (parallel), not opposed
+  st.grp.rotation.y += dt*0.5;                                                          // slowly turn the whole pair together so both sides show
   if(Math.hypot(player.wx-st.x,player.wz-st.z)<17 && player.py<16) _collectBoots();
 }
 // ════════ NEON ROBOT SLEDGEHAMMER — test power-up (equips to the right hand bone) ════════
@@ -19356,6 +19410,26 @@ let _MELEE_SPEED=1.4;        // swing playback speed (higher = snappier)
 let _MELEE_TRIM_START=0.167;  // sec skipped off the START of each swing (~5 frames @30fps) -> no windup
 let _MELEE_TRIM_END=0.167;    // sec cut off the END (~5 frames) -> locomotion takes over sooner
 let _MELEE_FLICK_WINDOW_MS=160;  // a flick must snap out AND return within this many ms; holding longer = aim/fire instead
+if(typeof window!=='undefined' && window._meleeUpperBody===undefined) window._meleeUpperBody=true;   // upper-body additive swing ON by default; set window._meleeUpperBody=false to land-lock the old full-body swing
+// ── upper-body additive swing: clone the melee clip, drop leg/hip tracks, rebase as additive-over-idle, layer it on the running legs (no GLB split needed) ──
+const _MELEE_LOWER_RE=/(Hips|Leg|Foot|Toe)/i;   // bones EXCLUDED from the upper-body layer (legs/hips stay driven by locomotion)
+function _buildAdditiveMelee(ud,name){
+  if(!ud) return null;
+  ud._addMelee=ud._addMelee||{};
+  if(ud._addMelee[name]!==undefined) return ud._addMelee[name];
+  const base=ud.clips&&ud.clips[name], clip=base&&base._clip, mix=ud.mixer||(player&&player._mixer);
+  const AU=THREE.AnimationUtils, ADD=THREE.AdditiveAnimationBlendMode;
+  if(!clip||!mix||!AU||!AU.makeClipAdditive||ADD===undefined){ ud._addMelee[name]=null; return null; }
+  let up; try{ up=clip.clone(); }catch(e){ ud._addMelee[name]=null; return null; }
+  up.tracks=up.tracks.filter(t=>!_MELEE_LOWER_RE.test(t.name));   // arms + torso only
+  up.name=name+'_upperAdd';
+  const idleClip=(ud.clips['idle']&&ud.clips['idle']._clip)||clip;   // rebase the layer against the rest (idle) pose, not the swing's own frame 0
+  try{ AU.makeClipAdditive(up,0,idleClip,30); }catch(e){ ud._addMelee[name]=null; return null; }
+  let act; try{ act=mix.clipAction(up,undefined,ADD); }catch(e){ ud._addMelee[name]=null; return null; }
+  act.setLoop(THREE.LoopOnce,1); act.clampWhenFinished=true;
+  ud._addMelee[name]=act;
+  return act;
+}
 function _doMeleeFlick(ud, dirAngle){
   if(!ud||!ud.clips||!player) return;
   if(typeof dirAngle==='number') player.aim=dirAngle;                       // orient toward the flick direction
@@ -19378,14 +19452,28 @@ function _doMeleeFlick(ud, dirAngle){
   const trimS=Math.min(_MELEE_TRIM_START||0, fullDur*0.3);
   const trimE=Math.min(_MELEE_TRIM_END||0, fullDur*0.3);
   const mdur=Math.max(fullDur*0.4, fullDur-trimS-trimE)/spd;
-  // blend FROM the current pose INTO the swing: full weight from frame 1 (no bind-pose/T-pose gap), fade the previous out
-  const prev=(ud.currentClip && ud.clips[ud.currentClip] && ud.clips[ud.currentClip]!==mc) ? ud.clips[ud.currentClip] : null;
-  mc.reset().setEffectiveTimeScale(spd).setLoop(THREE.LoopOnce,1);
-  if(trimS>0) mc.time=trimS;   // skip the windup frames
-  mc.clampWhenFinished=true; mc.setEffectiveWeight(1); mc.play();
-  if(prev){ if(!prev.isRunning()) prev.play(); prev.setEffectiveWeight(1); prev.fadeOut(0.15); }
-  Object.values(ud.clips).forEach(a=>{ if(a!==mc && a!==prev) a.fadeOut(0.10); });
-  ud.currentClip=mname; ud._meleeTimer=mdur; ud._meleeMax=mdur; ud._meleeHitDone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null;
+  let usedAdditive=false;
+  if(window._meleeUpperBody){
+    const add=_buildAdditiveMelee(ud,mname);
+    if(add){
+      if(player._meleeAdditive && player._meleeAdditive!==add) player._meleeAdditive.stop();   // don't stack swings
+      add.reset().setEffectiveTimeScale(spd).setLoop(THREE.LoopOnce,1);
+      if(trimS>0) add.time=trimS;                                  // skip the windup frames
+      add.clampWhenFinished=true; add.setEffectiveWeight(1); add.fadeIn(0.06).play();
+      player._meleeAdditive=add; usedAdditive=true;                // legs keep running; currentClip left to locomotion
+    }
+  }
+  if(!usedAdditive){
+    // full-body fallback (original): blend FROM the current pose INTO the swing, fade the rest out
+    const prev=(ud.currentClip && ud.clips[ud.currentClip] && ud.clips[ud.currentClip]!==mc) ? ud.clips[ud.currentClip] : null;
+    mc.reset().setEffectiveTimeScale(spd).setLoop(THREE.LoopOnce,1);
+    if(trimS>0) mc.time=trimS;
+    mc.clampWhenFinished=true; mc.setEffectiveWeight(1); mc.play();
+    if(prev){ if(!prev.isRunning()) prev.play(); prev.setEffectiveWeight(1); prev.fadeOut(0.15); }
+    Object.values(ud.clips).forEach(a=>{ if(a!==mc && a!==prev) a.fadeOut(0.10); });
+    ud.currentClip=mname;
+  }
+  ud._meleeTimer=mdur; ud._meleeMax=mdur; ud._meleeHitDone=false; if(ud._meleeHitSet)ud._meleeHitSet.clear(); ud._meleePrevTip=null;
   player._meleeComboT=Math.max(mdur,0.45)+0.9;
   player._flickCooldown=8;
   player._rollAimLock=true;
@@ -19450,7 +19538,7 @@ function _makeRoboSword(){
   return g;
 }
 window._meleeModel=window._meleeModel||'sword';   // 'sword' or 'hammer'
-function _makeMeleeWeapon(){ return (window._meleeModel==='hammer')?_makeRoboHammer():_makeRoboSword(); }
+function _makeMeleeWeapon(type){ const m=type||window._meleeModel; return (m==='hammer')?_makeRoboHammer():_makeRoboSword(); }
 function _orientHammer(){
   const h=player&&player._hammer; if(!h||!player.model||!h._hand) return;
   player.model.updateWorldMatrix(true,true);
@@ -19480,38 +19568,140 @@ function _orientHammer(){
   h.position.copy(h._hand.worldToLocal(Ph.add(wo)));
 }
 window._reorientHammer=function(){ _orientHammer(); };
-function _collectHammer(){
-  const st=window._hammerStation; if(!st||st.collected) return; st.collected=true;
-  const bones=player&&player.model&&player.model.userData&&player.model.userData.bones;
-  let ok=false;
-  if(bones){
-    const hand=bones['mixamorig_RightHand']||bones['mixamorig_LeftHand']||(function(){ for(const k in bones){ if(/hand/i.test(k)&&!/finger|thumb|index|middle|ring|pinky/i.test(k)) return bones[k]; } return null; })();
-    if(hand){ const hm=_makeMeleeWeapon(); hm._hand=hand; let _db=bones['weapon_direction']||bones['mixamorig_weapon_direction']; if(!_db){ for(const k in bones){ if(/weapon.*dir/i.test(k)){ _db=bones[k]; break; } } } if(!_db&&player.model){ player.model.traverse(o=>{ if(!_db && /weapon.*dir/i.test(o.name||'')) _db=o; }); } hm._dirBone=_db||null; window._hammerDirBone=!!_db; hand.add(hm); player._hammer=hm; _orientHammer(); ok=true; }
+// ════════ HAND ROCKET LAUNCHERS — visual loadout that rides the hands when rockets are equipped ════════
+const _LAUNCHER_SCALE=1.15;   // world size of the hand launcher (tunable)
+function _makeHandLauncher(side){
+  const g=new THREE.Group();
+  const METAL=new THREE.MeshStandardMaterial({color:0x1b2740,metalness:0.7,roughness:0.35,emissive:0x0a1830,emissiveIntensity:0.5});
+  const ACC =new THREE.MeshStandardMaterial({color:0x18e0ff,metalness:0.6,roughness:0.3,emissive:0x0a86b0,emissiveIntensity:0.9});
+  const GLOW=new THREE.MeshBasicMaterial({color:0xff7a3c,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
+  const body=new THREE.Mesh(new THREE.BoxGeometry(3.4,3.4,8), METAL); body.position.set(0,0,5.2); g.add(body);   // body sits just ahead of the fist, barrel down +Z
+  for(let i=0;i<2;i++){ const sx=(i?1:-1)*1.15;
+    const tube=new THREE.Mesh(new THREE.CylinderGeometry(1.05,1.05,9,12), METAL); tube.rotation.x=Math.PI/2; tube.position.set(sx,0.2,6); g.add(tube);
+    const lip=new THREE.Mesh(new THREE.TorusGeometry(1.15,0.28,8,16), ACC); lip.rotation.x=Math.PI/2; lip.position.set(sx,0.2,10.4); g.add(lip);
+    const muzzle=new THREE.Mesh(new THREE.CircleGeometry(0.95,14), GLOW); muzzle.position.set(sx,0.2,10.5); g.add(muzzle);
   }
+  const rail=new THREE.Mesh(new THREE.BoxGeometry(2.2,0.7,6), ACC); rail.position.set(0,1.95,5); g.add(rail);
+  const grip=new THREE.Mesh(new THREE.BoxGeometry(2.0,3.0,1.6), METAL); grip.position.set(0,-2.0,1.6); g.add(grip);
+  const oe=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(3.4,3.4,8)), new THREE.LineBasicMaterial({color:0x33ffdd,transparent:true,opacity:0.55})); oe.position.copy(body.position); g.add(oe);
+  g.userData._side=side;
+  return g;
+}
+function _orientHandLauncher(obj,bone){
+  if(!obj||!bone||!player||!player.model) return;
+  const mq=player.model.getWorldQuaternion(new THREE.Quaternion());
+  let fwd=new THREE.Vector3(0,0,1).applyQuaternion(mq); fwd.y=0; if(fwd.lengthSq()<1e-6)fwd.set(0,0,1); fwd.normalize();
+  const up=new THREE.Vector3(0,1,0);
+  const right=new THREE.Vector3().crossVectors(up,fwd); if(right.lengthSq()<1e-6)right.set(1,0,0); right.normalize();
+  const up2=new THREE.Vector3().crossVectors(fwd,right).normalize();
+  const desired=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(right,up2,fwd));
+  const bq=new THREE.Quaternion(); bone.getWorldQuaternion(bq);
+  obj.quaternion.copy(bq.clone().invert().multiply(desired));      // point the barrel where the body faces (≈ aim)
+  const bs=new THREE.Vector3(); bone.getWorldScale(bs);
+  obj.scale.setScalar((1/(Math.abs(bs.x)||1))*_LAUNCHER_SCALE);
+}
+function _ensureLauncher(side,show,bone){
+  const key='_launcher'+side;
+  if(show && bone){
+    if(player[key] && player[key].parent!==bone){ if(player[key].parent)player[key].parent.remove(player[key]); bone.add(player[key]); }   // re-home after a model rebuild
+    else if(!player[key]){ const m=_makeHandLauncher(side==='L'?-1:1); bone.add(m); player[key]=m; }
+  } else if(player[key]){
+    if(player[key].parent)player[key].parent.remove(player[key]);
+    player[key]=null;
+  }
+}
+function _updateHandLaunchers(){
+  if(!player||!player.model) return;
+  const ud=player.model.userData, bones=ud&&ud.bones; if(!bones) return;
+  const want=(player.primaryWeapon==='rockets'||player.secWeapon==='rockets');
+  const meleeOut=!!player._hammer;
+  const RH=bones['mixamorig_RightHand'], LH=bones['mixamorig_LeftHand'];
+  _ensureLauncher('L', want, LH);                  // left launcher whenever rockets are equipped
+  _ensureLauncher('R', want && !meleeOut, RH);     // right launcher too — unless the right hand is holding a melee weapon
+  if(player._launcherL&&LH) _orientHandLauncher(player._launcherL,LH);
+  if(player._launcherR&&RH) _orientHandLauncher(player._launcherR,RH);
+}
+window._updateHandLaunchers=_updateHandLaunchers;
+function _equipMeleeType(type){
+  type=type||'sword';
+  const bones=player&&player.model&&player.model.userData&&player.model.userData.bones;
+  if(!bones) return false;
+  const hand=bones['mixamorig_RightHand']||bones['mixamorig_LeftHand']||(function(){ for(const k in bones){ if(/hand/i.test(k)&&!/finger|thumb|index|middle|ring|pinky/i.test(k)) return bones[k]; } return null; })();
+  if(!hand) return false;
+  if(player._hammer&&player._hammer.parent) player._hammer.parent.remove(player._hammer);   // drop the old weapon before swapping
+  const hm=_makeMeleeWeapon(type); hm._hand=hand;
+  let _db=bones['weapon_direction']||bones['mixamorig_weapon_direction']; if(!_db){ for(const k in bones){ if(/weapon.*dir/i.test(k)){ _db=bones[k]; break; } } } if(!_db&&player.model){ player.model.traverse(o=>{ if(!_db && /weapon.*dir/i.test(o.name||'')) _db=o; }); }
+  hm._dirBone=_db||null; window._hammerDirBone=!!_db; hand.add(hm); player._hammer=hm; player._meleeType=type; player._stowedType=type; player._meleeStowed=false; _orientHammer();
+  return true;
+}
+function _collectHammer(st){
+  st=st||(window._hammerStations&&window._hammerStations[0]); if(!st) return;
+  const type=st.type||'sword';
+  if(player._meleeType===type) return;                          // already holding this one -> step onto the other pad to swap
+  const ok=_equipMeleeType(type);
   if(typeof ps!=='undefined'){ ps.burst(player.wx,player.wz,[1,0.2,0.7],34,170); ps.ring(player.wx,player.wz,[0.2,1,0.9],22,150); }
   if(typeof Audio!=='undefined'){ Audio.blip(160,0.18,'sawtooth',0.25,70); Audio.blip(420,0.12,'square',0.2,900); }
-  if(typeof addTrauma==='function') addTrauma(0.18);
-  if(typeof announce==='function') announce(ok?(((window._meleeModel==='hammer')?'\u2692 SLEDGEHAMMER':'\u2694 SWORD')+(window._hammerDirBone?' \u2014 aimed':' \u2014 no dir bone')):'NO HAND BONE FOUND', ok?'#33ffdd':'#ff5555');
-  try{ const _ck=Object.keys((player.model&&player.model.userData&&player.model.userData.clips)||{}); const _sw=_ck.filter(k=>/_sword/.test(k)).length; console.log('SWORD clips loaded:',_sw,_ck.filter(k=>/_sword/.test(k))); if(typeof announce==='function') setTimeout(()=>announce('SWORD ANIMS: '+_sw+' loaded',_sw?'#33ffdd':'#ff5555'),750); }catch(e){}
-  _removeHammerStation();
+  if(typeof addTrauma==='function') addTrauma(0.12);
+  if(typeof announce==='function') announce(ok?(((type==='hammer')?'\u2692 SLEDGEHAMMER':'\u2694 SWORD')+(window._hammerDirBone?' \u2014 aimed':' \u2014 no dir bone')):'NO HAND BONE FOUND', ok?'#33ffdd':'#ff5555');
+  if(typeof _updateStowButton==='function') _updateStowButton();
 }
-function _spawnHammerStation(x,z){
-  if(window._hammerStation) _removeHammerStation();
+function _toggleMeleeStow(){
+  if(!player) return;
+  if(player._hammer){                                            // STOW -> hide the weapon, free the hands for guns
+    if(player._hammer.parent) player._hammer.parent.remove(player._hammer);
+    player._hammer=null; player._meleeType=null; player._meleeStowed=true;
+    const ud=player.model&&player.model.userData; if(ud){ ud._meleeTimer=0; ud.currentClip=null; }
+    if(player._meleeAdditive){ try{player._meleeAdditive.stop();}catch(e){} player._meleeAdditive=null; }
+    if(typeof announce==='function') announce('WEAPON STOWED','#9fd0ff');
+    if(typeof Audio!=='undefined') Audio.blip(300,0.08,'square',0.16,140);
+  } else if(player._stowedType){                                 // DRAW -> bring the same weapon back out
+    const ok=_equipMeleeType(player._stowedType);
+    if(typeof announce==='function') announce(ok?'WEAPON DRAWN':'NO HAND BONE','#33ffdd');
+    if(typeof Audio!=='undefined') Audio.blip(520,0.08,'square',0.16,820);
+  } else {
+    if(typeof announce==='function') announce('NO MELEE WEAPON YET','#ff8855');
+  }
+  if(typeof _updateStowButton==='function') _updateStowButton();
+}
+window._toggleMeleeStow=_toggleMeleeStow;
+function _updateStowButton(){
+  const b=document.getElementById('btn-stow'); if(!b) return;
+  const touch=(typeof IS_TOUCH!=='undefined'&&IS_TOUCH);
+  const has=!!(player&&(player._hammer||player._stowedType));
+  const out=!!(player&&player._hammer);
+  const key=touch?(has?(out?'out':'in'):'none'):'hide';
+  if(b._k===key) return; b._k=key;
+  b.style.display=(key==='out'||key==='in')?'flex':'none';
+  const lbl=b.querySelector('.stow-label'); if(lbl) lbl.textContent=out?'STOW':'DRAW';
+  b.classList.toggle('drawn',out);
+}
+window._updateStowButton=_updateStowButton;
+function _spawnHammerStation(x,z,type){
+  type=type||'sword';
+  window._hammerStations=window._hammerStations||[];
+  const hot =(type==='hammer')?0xff2da0:0x18e0ff;     // hammer pad = magenta, sword pad = cyan
+  const cool=(type==='hammer')?0x33ffdd:0x7fd0ff;
   const grp=new THREE.Group(); grp.position.set(x,0,z);
-  const ring=new THREE.Mesh(new THREE.TorusGeometry(15,1.3,8,32),new THREE.MeshBasicMaterial({color:0xff2da0,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false})); ring.rotation.x=-Math.PI/2; ring.position.y=1.2; grp.add(ring);
-  const ring2=new THREE.Mesh(new THREE.TorusGeometry(9,0.7,8,28),new THREE.MeshBasicMaterial({color:0x33ffdd,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false})); ring2.rotation.x=-Math.PI/2; ring2.position.y=2.2; grp.add(ring2);
-  const disc=new THREE.Mesh(new THREE.CircleGeometry(14,32),new THREE.MeshBasicMaterial({color:0xaa1166,transparent:true,opacity:0.22,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); disc.rotation.x=-Math.PI/2; disc.position.y=0.5; grp.add(disc);
-  const col=new THREE.Mesh(new THREE.CylinderGeometry(5,8,42,16,1,true),new THREE.MeshBasicMaterial({color:0xff2da0,transparent:true,opacity:0.10,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); col.position.y=21; grp.add(col);
-  const ham=_makeMeleeWeapon(); ham.scale.setScalar(1.7); ham.position.y=15; grp.add(ham);
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(15,1.3,8,32),new THREE.MeshBasicMaterial({color:hot,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending,depthWrite:false})); ring.rotation.x=-Math.PI/2; ring.position.y=1.2; grp.add(ring);
+  const ring2=new THREE.Mesh(new THREE.TorusGeometry(9,0.7,8,28),new THREE.MeshBasicMaterial({color:cool,transparent:true,opacity:0.7,blending:THREE.AdditiveBlending,depthWrite:false})); ring2.rotation.x=-Math.PI/2; ring2.position.y=2.2; grp.add(ring2);
+  const disc=new THREE.Mesh(new THREE.CircleGeometry(14,32),new THREE.MeshBasicMaterial({color:hot,transparent:true,opacity:0.18,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); disc.rotation.x=-Math.PI/2; disc.position.y=0.5; grp.add(disc);
+  const col=new THREE.Mesh(new THREE.CylinderGeometry(5,8,42,16,1,true),new THREE.MeshBasicMaterial({color:hot,transparent:true,opacity:0.10,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})); col.position.y=21; grp.add(col);
+  const ham=_makeMeleeWeapon(type); ham.scale.setScalar(1.7); ham.position.y=15; grp.add(ham);
   scene.add(grp);
-  window._hammerStation={grp,ring,ring2,col,ham,x,z,t:0,collected:false};
+  const st={grp,ring,ring2,col,ham,x,z,type,t:0};
+  window._hammerStations.push(st);
+  window._hammerStation=st;   // back-compat alias (last spawned)
+  return st;
 }
-function _removeHammerStation(){ const st=window._hammerStation; if(!st) return; if(st.grp){ scene.remove(st.grp); st.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } window._hammerStation=null; }
+function _removeHammerStation(){ const A=window._hammerStations||[]; for(const st of A){ if(st.grp){ scene.remove(st.grp); st.grp.traverse(o=>{ if(o.geometry)o.geometry.dispose(); }); } } window._hammerStations=[]; window._hammerStation=null; }
 function _updateHammerStation(dt){
-  const st=window._hammerStation; if(!st||st.collected||!player) return;
-  st.t+=dt; st.ring.rotation.z+=dt*0.6; st.ring2.rotation.z-=dt*1.0;
-  st.ham.rotation.y+=dt*1.3; st.ham.position.y=15+Math.sin(st.t*2.0)*2.0;
-  if(Math.hypot(player.wx-st.x,player.wz-st.z)<17 && player.py<16) _collectHammer();
+  const A=window._hammerStations; if(!A||!A.length||!player) return;
+  for(const st of A){
+    st.t+=dt; st.ring.rotation.z+=dt*0.6; st.ring2.rotation.z-=dt*1.0;
+    st.ham.rotation.y+=dt*1.3; st.ham.position.y=15+Math.sin(st.t*2.0)*2.0;
+    if(Math.hypot(player.wx-st.x,player.wz-st.z)<17 && player.py<16) _collectHammer(st);
+  }
+  if(typeof _updateStowButton==='function') _updateStowButton();
 }
 // ════════ SLASH FX — neon blade ribbon + crescent swoosh (drives off right_hand -> weapon_direction) ════════
 let _SLASH_BLADE_LEN=26;      // world length hand->blade tip for the ribbon (tunable)
@@ -19723,7 +19913,8 @@ function buildCityTest(){
   }
   _cityAddProps();
   _spawnBootStation(0,128);
-  _spawnHammerStation(48,128);
+  _spawnHammerStation(40,128,'sword');
+  _spawnHammerStation(100,128,'hammer');
   if(player){ player.wx=0; player.wz=30; player.py=9; player.pvy=0; }   // spawn a few steps back so you don't land on the boots
   if(typeof _cityMakeTestUI==='function') _cityMakeTestUI();
   _cityBroadcastLayout();
