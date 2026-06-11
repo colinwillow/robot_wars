@@ -998,6 +998,23 @@ function slowmo(s,h){ if(_timeFXoff()) return; TIME.target=s; TIME.hold=h; }
 window._spawnTestSpiders=(n=10)=>{ if(typeof MP!=='undefined'&&MP.active&&!MP.isHost){ mpSend('event',{event:'spawn_req',data:{kind:'spdr',n}}); if(typeof announce==='function')announce('SPIDERS REQUESTED','#ff66cc'); return; } const R=(typeof ARENA_R!=='undefined'?ARENA_R:240); const walls=(typeof _arenaObstacles!=='undefined')?_arenaObstacles.filter(o=>o&&(o.h||0)>=14&&(o.t===undefined||o.t>=0.5)):[]; for(let k=0;k<n;k++){ try{ const e=new Crawler(0,0,1); e.addToScene(); GS.enemies.push(e); if(walls.length){ const w=walls[(Math.random()*walls.length)|0]; const a=Math.random()*Math.PI*2; e.wx=w.x+Math.cos(a)*(Math.max(w.w,w.d)*0.5+10); e.wz=w.z+Math.sin(a)*(Math.max(w.w,w.d)*0.5+10); } else { const a=Math.random()*Math.PI*2, r=70+Math.random()*210; e.wx=Math.cos(a)*r; e.wz=Math.sin(a)*r; } }catch(err){console.warn('spawn test',err);} } };
 window._spawnGhosts=(n=5)=>{ const R=(typeof ARENA_R!=='undefined'?ARENA_R:240); for(let k=0;k<n;k++){ try{ const a=Math.random()*Math.PI*2, r=80+Math.random()*150; const e=new Ghost(Math.cos(a)*r,Math.sin(a)*r,2); e.addToScene(); GS.enemies.push(e); }catch(err){console.warn('spawn ghost',err);} } };
 window._spawnDroids=(n=2)=>{ if(typeof MP!=='undefined'&&MP.active&&!MP.isHost){ mpSend('event',{event:'spawn_req',data:{kind:'droid',n}}); if(typeof announce==='function')announce('DROIDS REQUESTED','#ff8844'); return; } const R=(typeof ARENA_R!=='undefined'?ARENA_R:240); const tr=window._testRoom; for(let k=0;k<n;k++){ let sx,sz; if(tr){ sx=(Math.random()*2-1)*tr.hx*0.7; sz=(Math.random()*2-1)*tr.hz*0.7; } else { const a2=Math.random()*Math.PI*2, r=R*(0.32+Math.random()*0.4); sx=Math.cos(a2)*r; sz=Math.sin(a2)*r; } try{ const e=new DroidekaBot(sx,sz,2); e.addToScene(); GS.enemies.push(e); }catch(err){console.warn('spawn droid',err);} } };
+window._botDiff='dummy';
+window._spawnBot=function(diff){
+  if(typeof player==='undefined'||!player){ if(typeof announce==='function')announce('NO PLAYER','#ff5555'); return; }
+  diff=diff||window._botDiff||'soldier';
+  try{
+    const a=Math.random()*Math.PI*2, r=120;
+    const bot=new BotPilot((player.wx||0)+Math.cos(a)*r,(player.wz||0)+Math.sin(a)*r,{difficulty:diff,round:1});
+    GS_bots.push(bot);
+    if(typeof announce==='function') announce('BOT SPAWNED \u2022 '+diff.toUpperCase(),'#ff66aa');
+  }catch(e){ console.warn('spawn bot',e); if(typeof announce==='function')announce('BOT SPAWN FAILED','#ff5555'); }
+};
+window._botSpawnTap=function(btn){
+  const order=['dummy','rookie','soldier','elite'];
+  window._spawnBot(window._botDiff);
+  const i=order.indexOf(window._botDiff); window._botDiff=order[(i+1)%order.length];
+  if(btn) btn.textContent='+BOT\u00b7'+window._botDiff.charAt(0).toUpperCase();
+};
 window._toggleTestBox=function(){
   if(window._testRoom){ if(window._testBoxObj){ scene.remove(window._testBoxObj); window._testBoxObj.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); }); window._testBoxObj=null; } if(window._testWallObs){ for(const o of window._testWallObs){ const k=_arenaObstacles.indexOf(o); if(k>=0)_arenaObstacles.splice(k,1); } window._testWallObs=null; } window._testRoom=null; if(typeof announce==='function')announce('TEST BOX OFF','#66ddff'); return; }
   const R=(typeof ARENA_R!=='undefined'?ARENA_R:240), HX=R*0.6, HZ=R*0.6, H=R*0.5;
@@ -9799,14 +9816,16 @@ class BotPilot{
     this.shieldActive=false; this.shieldHp=100; this.shieldMax=100;
     this._shieldMesh3D=null; this._shieldMat3D=null; this._shieldRimMat=null; this._shieldFaceMat=null;
     this._shieldHitFlash=0;
+    this._stun=0; this._kbVx=0; this._kbVz=0; this._launched=false;
 
     // Difficulty: 'rookie' | 'soldier' | 'elite'
     const diff=opts.difficulty||'soldier';
     this.diff=diff;
-    this.aimError   ={rookie:0.55, soldier:0.22, elite:0.06}[diff];
-    this.reactionMs ={rookie:600,  soldier:320,  elite:120 }[diff];
-    this.speedMult  ={rookie:0.6,  soldier:0.85, elite:1.1 }[diff];
-    this.aggression ={rookie:0.3,  soldier:0.6,  elite:0.9 }[diff];
+    this.aimError   ={dummy:1.0, rookie:0.55, soldier:0.22, elite:0.06}[diff];
+    this.reactionMs ={dummy:9999,rookie:600,  soldier:320,  elite:120 }[diff];
+    this.speedMult  ={dummy:0,   rookie:0.6,  soldier:0.85, elite:1.1 }[diff];
+    this.aggression ={dummy:0,   rookie:0.3,  soldier:0.6,  elite:0.9 }[diff];
+    this.isDummy=(diff==='dummy');
 
     // State machine
     this.state='chase'; // chase | strafe | evade | reposition
@@ -9933,6 +9952,7 @@ class BotPilot{
   }
 
   hit(dmg){
+    if(this.isDummy){ this.inv=8; addTrauma(0.04); ps.burst(this.wx,this.wz,[1,0.4,0.1],8,60); this._updateHpBar(); return; }
     if(this.inv>0) return;
     if(this.shieldActive&&this.shieldHp>0){
       this.shieldHp=Math.max(0,this.shieldHp-dmg*3);
@@ -9949,6 +9969,43 @@ class BotPilot{
     this.state='evade'; this.stateT=60;
     // Use shield reactively on elite
     if(this.diff==='elite'&&this.shieldHp>30&&Math.random()<0.6) this.shieldActive=true;
+  }
+
+  // Smash-style knockback: horizontal impulse (+optional vertical launch) + control-lock
+  knock(dirX,dirZ,mag,lift=0,stun=0){
+    const d=Math.hypot(dirX,dirZ)||1, nx=dirX/d, nz=dirZ/d;
+    this._kbVx=(this._kbVx||0)+nx*mag;
+    this._kbVz=(this._kbVz||0)+nz*mag;
+    const sp=Math.hypot(this._kbVx,this._kbVz), CAP=26;
+    if(sp>CAP){ this._kbVx=this._kbVx/sp*CAP; this._kbVz=this._kbVz/sp*CAP; }
+    if(lift>0){ this.pvy=Math.max(this.pvy||0,lift); this._launched=true; }
+    if(stun>0) this._stun=Math.max(this._stun||0,stun);
+    this._reactionPending=false;   // interrupt any pending AI decision
+    this.shieldActive=false;       // knocked out of shield
+  }
+
+  // Render while stunned/launched — face the flight vector, play the in-air 'floating' pose
+  _renderStunned(dt){
+    if(this.model){
+      this.model.position.set(this.wx,this.py,this.wz);
+      const sp=Math.hypot(this._kbVx,this._kbVz);
+      if(this._launched && sp>0.2){
+        const ang=Math.atan2(this._kbVz,this._kbVx);
+        this.model.rotation.y=-ang+Math.PI/2;
+      } else {
+        this.model.rotation.y=-this.aim+Math.PI/2;
+      }
+    }
+    if(this._mixer) this._mixer.update(dt);
+    if(this._clips){
+      const want=this._launched?(this._clips['floating']?'floating':'idle'):'idle';
+      if(want!==this._clips._cur && this._clips[want]){
+        Object.values(this._clips).forEach(a=>{ if(typeof a.fadeOut==='function') a.fadeOut(0.12); });
+        this._clips[want].reset().setEffectiveWeight(1).fadeIn(0.12).play();
+        this._clips._cur=want;
+      }
+    }
+    this._updateHpBar&&this._updateHpBar();
   }
 
   die(){
@@ -9987,6 +10044,36 @@ class BotPilot{
     if(this.inv>0) this.inv--;
     if(this._dashCD>0) this._dashCD--;
     this.stateT=Math.max(0,this.stateT-1);
+
+    // ── KNOCKBACK / STUN (Smash-style launch + recover) ──
+    if(this._stun>0) this._stun--;
+    if(this._kbVx||this._kbVz){
+      this.wx+=this._kbVx; this.wz+=this._kbVz;
+      this._kbVx*=0.88; this._kbVz*=0.88;
+      if(Math.abs(this._kbVx)<0.05&&Math.abs(this._kbVz)<0.05){ this._kbVx=0; this._kbVz=0; }
+      if(GS.zone!==-6&&GS.zone!==-7){
+        const zc=zoneCenter(GS.zone), edge=ARENA_R-20;
+        const d2=Math.hypot(this.wx-zc.x,this.wz-zc.z);
+        if(d2>edge){ this.wx=zc.x+(this.wx-zc.x)/d2*edge; this.wz=zc.z+(this.wz-zc.z)/d2*edge; this._kbVx*=0.3; this._kbVz*=0.3; }
+      }
+    }
+    if((this._stun>0)||this._launched){
+      if(this.py>0||this.pvy>0){ this.pvy-=320*dt; this.py=Math.max(0,this.py+this.pvy*dt); if(this.py<=0){this.py=0;this.pvy=0;} }
+      if(this._launched && this.py<=0 && this._stun<=0 && Math.hypot(this._kbVx,this._kbVz)<1.0) this._launched=false;
+      this._renderStunned(dt);
+      return;
+    }
+    if(this.isDummy){   // defenceless training dummy — idle only (still eats knockback above)
+      if(this.py>0||this.pvy>0){ this.pvy-=320*dt; this.py=Math.max(0,this.py+this.pvy*dt); if(this.py<=0){this.py=0;this.pvy=0;} }
+      if(this.model) this.model.position.set(this.wx,this.py,this.wz);
+      if(this._mixer) this._mixer.update(dt);
+      if(this._clips && this._clips._cur!=='idle' && this._clips['idle']){
+        Object.values(this._clips).forEach(a=>{ if(typeof a.fadeOut==='function') a.fadeOut(0.15); });
+        this._clips['idle'].reset().setEffectiveWeight(1).fadeIn(0.15).play(); this._clips._cur='idle';
+      }
+      this._updateHpBar&&this._updateHpBar();
+      return;
+    }
 
     const px=player?.wx||0, pz=player?.wz||0;
     const dx=px-this.wx, dz=pz-this.wz;
@@ -10128,6 +10215,7 @@ class BotPilot{
     if(Math.hypot(b.wx-this.wx, b.wz-this.wz)<20&&Math.abs((b.y||9)-(this.py+15))<35){
       b.life=0;
       this.hit(b.dmg||1);
+      this.knock(this.wx-(b.wx||this.wx-1), this.wz-(b.wz||this.wz), 1.6, 0, 4);
       return true;
     }
     return false;
@@ -10137,7 +10225,11 @@ class BotPilot{
   checkBombHit(bx,bz){
     if(!this.alive) return;
     const d=Math.hypot(bx-this.wx, bz-this.wz);
-    if(d<60) this.hit(Math.ceil((60-d)/15));
+    if(d<60){
+      this.hit(Math.ceil((60-d)/15));
+      const sN=Math.max(0,(60-d)/60);
+      this.knock(this.wx-bx, this.wz-bz, 8+sN*10, 70+sN*90, 26+sN*22);
+    }
   }
 }
 
@@ -13678,6 +13770,7 @@ function loop(ts){ requestAnimationFrame(loop);
           ud._rollingTimer-=dt;
           if(ud._rollingTimer<0) ud._rollingTimer=0; // never go negative
         }
+/* ===== MELEE DISABLED (per-frame tick) — uncomment to restore =====
         // Tick melee one-shot (blocks locomotion) + combo chain window
         if(ud._meleeTimer>0){
           ud._meleeTimer-=dt;
@@ -13687,6 +13780,7 @@ function loop(ts){ requestAnimationFrame(loop);
           if(ud._meleeTimer<=0){ ud._meleeTimer=0; ud.currentClip=null; player._rollAimLock=false; }   // release -> blend picks idle/run
         }
         if(player._meleeComboT>0){ player._meleeComboT-=dt; if(player._meleeComboT<0) player._meleeComboT=0; }
+===== END MELEE DISABLED ===== */
 
         // Landing detection — was airborne, now on ground (debounced)
         if(!ud._landingTimer&&!ud._rollingTimer&&onGround&&ud._prevAirborne){
@@ -13933,6 +14027,7 @@ function loop(ts){ requestAnimationFrame(loop);
       const flickActive=player&&player._flickCooldown>0;
       if(flickActive&&player) player._flickCooldown--;
 
+/* ===== MELEE DISABLED (flick trigger) — uncomment this block to restore =====
       // ── RIGHT-STICK FLICK MELEE — a quick snap-out-AND-back = melee; pushing & holding = aim/fire ──
       if(IS_TOUCH && player && player.alive && GS.state==='playing' && !grenadeActive && !CAM.aimMode && !player._wallClimb && !player._hang && !player._crestSeq){
         const _fmag=Math.hypot(shootIn.x,shootIn.y);
@@ -13947,6 +14042,7 @@ function loop(ts){ requestAnimationFrame(loop);
           const _ws=rotInput(shootIn.x,shootIn.y); player._flickDir=Math.atan2(_ws.z,_ws.x);
         }
       }
+===== END MELEE DISABLED ===== */
 
       // In puzzle lab: check if right stick is pointing toward a wall — suppress firing if so
       let nearWallStick=false;
@@ -13984,7 +14080,7 @@ function loop(ts){ requestAnimationFrame(loop);
         const stickMag=Math.hypot(shootIn.x,shootIn.y);
         const held=(typeof jR!=='undefined')?jR.isHeld:(stickMag>0.05);
         if(!held){ player._fireLatched=false; }
-        else if(stickMag>0.38 && !player._flickPending){ player._fireLatched=true; }            // dragged out far enough -> latch ON (held, not a flick)
+        else if(stickMag>0.38){ player._fireLatched=true; }                                    // dragged out far enough -> latch ON
         if(player._fireLatched){
           if(stickMag>0.05){ const ws=rotInput(shootIn.x,shootIn.y); avx=ws.x; avz=ws.z; }     // direction + magnitude track the stick (small mag => steep / close)
           else { avx=Math.cos(player.aim)*0.04; avz=Math.sin(player.aim)*0.04; }               // dead center -> keep last direction, minimal mag = steepest dive at your feet
@@ -21184,17 +21280,14 @@ try{ init(); requestAnimationFrame(loop); }catch(e){ console.error('Init failed:
   padding:4px 8px;z-index:100000;
   border-radius:4px 0 0 0;
 ">DBG</button>
-<button id="dbg-spawn" style="position:fixed;bottom:0;right:52px;background:#ff66cc22;border:1px solid #ff66cc66;color:#ff66cc;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">+SPDR</button>
-<button id="dbg-arena" style="position:fixed;bottom:0;right:108px;background:#ffaa3322;border:1px solid #ffaa3366;color:#ffaa33;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">ARENA</button>
-<button id="dbg-box" style="position:fixed;bottom:0;right:164px;background:#33ddff22;border:1px solid #33ddff66;color:#33ddff;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">BOX</button>
-<button id="dbg-droid" style="position:fixed;bottom:0;right:216px;background:#ff772222;border:1px solid #ff772266;color:#ff8844;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">+DROID</button>
-<button id="dbg-ghost" style="position:fixed;bottom:0;right:272px;background:#33ffcc22;border:1px solid #33ffcc66;color:#33ffcc;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">+GHOST</button><div id="boot-tune" style="display:none;position:fixed;top:43%;left:10px;z-index:100051;background:rgba(0,8,16,0.92);border:1px solid #1e3a52;border-radius:10px;padding:8px 9px;font:11px monospace;color:#9fdcff;"><div style="display:flex;gap:5px;align-items:center;margin-bottom:6px;"><span style="color:#7fb4d8;">BOOT</span><button id="bt-side-L" onclick="window._bootTune.setSide('L')" style="background:#00ffc822;border:1px solid #00ffc877;color:#00ffc8;font:11px monospace;padding:4px 9px;border-radius:6px;">L</button><button id="bt-side-R" onclick="window._bootTune.setSide('R')" style="background:#ff993322;border:1px solid #ff993377;color:#ffb866;font:11px monospace;padding:4px 9px;border-radius:6px;">R</button><button onclick="window._bootTune.flip()" style="background:#ff44ff22;border:1px solid #ff44ff88;color:#ff9bff;font:11px monospace;padding:4px 9px;border-radius:6px;">FLIP</button><button onclick="window._bootTune.reset()" style="background:#ff447722;border:1px solid #ff447766;color:#ff7799;font:10px monospace;padding:4px 8px;border-radius:6px;">RST</button></div><div style="display:flex;gap:4px;align-items:center;margin:3px 0;"><span style="width:12px;color:#ff6b6b;font-size:12px;">X</span><button onclick="window._bootTune.nudge('x',-5)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">−5</button><button onclick="window._bootTune.nudge('x',-1)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">−1</button><button onclick="window._bootTune.nudge('x',1)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">+1</button><button onclick="window._bootTune.nudge('x',5)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">+5</button></div><div style="display:flex;gap:4px;align-items:center;margin:3px 0;"><span style="width:12px;color:#7bff7b;font-size:12px;">Y</span><button onclick="window._bootTune.nudge('y',-5)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">−5</button><button onclick="window._bootTune.nudge('y',-1)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">−1</button><button onclick="window._bootTune.nudge('y',1)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">+1</button><button onclick="window._bootTune.nudge('y',5)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">+5</button></div><div style="display:flex;gap:4px;align-items:center;margin:3px 0;"><span style="width:12px;color:#6bb4ff;font-size:12px;">Z</span><button onclick="window._bootTune.nudge('z',-5)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">−5</button><button onclick="window._bootTune.nudge('z',-1)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">−1</button><button onclick="window._bootTune.nudge('z',1)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">+1</button><button onclick="window._bootTune.nudge('z',5)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">+5</button></div><div id="bt-read" style="margin-top:6px;font-size:10px;color:#7fd0ff;max-width:240px;white-space:pre-wrap;line-height:1.5;">L: 21,0,0 flip1  R: -21,0,0 flip1</div></div><button id="dbg-boot" onclick="(function(){var p=document.getElementById('boot-tune');p.style.display=(p.style.display==='none'?'block':'none');if(window._bootTune)window._bootTune.show();})()" style="position:fixed;left:6px;bottom:32px;background:#ff9bff22;border:1px solid #ff9bff88;color:#ff9bff;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px;">BOOT</button>
+<button id="dbg-box" style="position:fixed;bottom:0;right:164px;display:none;background:#33ddff22;border:1px solid #33ddff66;color:#33ddff;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">BOX</button>
+<div id="boot-tune" style="display:none;position:fixed;top:43%;left:10px;z-index:100051;background:rgba(0,8,16,0.92);border:1px solid #1e3a52;border-radius:10px;padding:8px 9px;font:11px monospace;color:#9fdcff;"><div style="display:flex;gap:5px;align-items:center;margin-bottom:6px;"><span style="color:#7fb4d8;">BOOT</span><button id="bt-side-L" onclick="window._bootTune.setSide('L')" style="background:#00ffc822;border:1px solid #00ffc877;color:#00ffc8;font:11px monospace;padding:4px 9px;border-radius:6px;">L</button><button id="bt-side-R" onclick="window._bootTune.setSide('R')" style="background:#ff993322;border:1px solid #ff993377;color:#ffb866;font:11px monospace;padding:4px 9px;border-radius:6px;">R</button><button onclick="window._bootTune.flip()" style="background:#ff44ff22;border:1px solid #ff44ff88;color:#ff9bff;font:11px monospace;padding:4px 9px;border-radius:6px;">FLIP</button><button onclick="window._bootTune.reset()" style="background:#ff447722;border:1px solid #ff447766;color:#ff7799;font:10px monospace;padding:4px 8px;border-radius:6px;">RST</button></div><div style="display:flex;gap:4px;align-items:center;margin:3px 0;"><span style="width:12px;color:#ff6b6b;font-size:12px;">X</span><button onclick="window._bootTune.nudge('x',-5)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">−5</button><button onclick="window._bootTune.nudge('x',-1)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">−1</button><button onclick="window._bootTune.nudge('x',1)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">+1</button><button onclick="window._bootTune.nudge('x',5)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">+5</button></div><div style="display:flex;gap:4px;align-items:center;margin:3px 0;"><span style="width:12px;color:#7bff7b;font-size:12px;">Y</span><button onclick="window._bootTune.nudge('y',-5)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">−5</button><button onclick="window._bootTune.nudge('y',-1)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">−1</button><button onclick="window._bootTune.nudge('y',1)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">+1</button><button onclick="window._bootTune.nudge('y',5)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">+5</button></div><div style="display:flex;gap:4px;align-items:center;margin:3px 0;"><span style="width:12px;color:#6bb4ff;font-size:12px;">Z</span><button onclick="window._bootTune.nudge('z',-5)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">−5</button><button onclick="window._bootTune.nudge('z',-1)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">−1</button><button onclick="window._bootTune.nudge('z',1)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">+1</button><button onclick="window._bootTune.nudge('z',5)" style="background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:11px monospace;padding:4px 7px;border-radius:5px;min-width:28px;">+5</button></div><div id="bt-read" style="margin-top:6px;font-size:10px;color:#7fd0ff;max-width:240px;white-space:pre-wrap;line-height:1.5;">L: 21,0,0 flip1  R: -21,0,0 flip1</div></div>
 <button id="gl-build" onclick="window._gridLabBuild&&window._gridLabBuild()" style="display:none;position:fixed;bottom:64px;left:50%;transform:translateX(-92px);background:#33ddff22;border:1px solid #33ddff99;color:#33ddff;font:12px monospace;padding:9px 16px;z-index:100000;border-radius:8px;">BUILD ⟳</button>
 <button id="gl-shape" onclick="window._gridLabShape&&window._gridLabShape()" style="display:none;position:fixed;bottom:64px;left:50%;transform:translateX(8px);background:#33ddff22;border:1px solid #33ddff99;color:#33ddff;font:12px monospace;padding:9px 16px;z-index:100000;border-radius:8px;">SHAPE ▷</button>
 <!-- ════ WORKSHOP / DRESS ROOM ════ -->
 <style>#workshop-overlay .ws-nudge{background:#13314a;border:1px solid #2a5575;color:#bfe3ff;font:12px monospace;padding:7px 11px;border-radius:6px;min-width:36px;}#workshop-overlay .ws-nudge:active{background:#1e4a6e;}#workshop-overlay button{cursor:pointer;}</style>
 <div id="workshop-overlay" style="display:none;position:fixed;inset:0;z-index:200000;background:radial-gradient(ellipse at 50% 38%,#0a1426 0%,#04060c 68%,#000 100%);font-family:Orbitron,monospace;"><canvas id="workshop-canvas" style="position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;"></canvas><div style="position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:10px 14px;pointer-events:none;"><div style="color:#00ffc8;font-size:15px;letter-spacing:2px;text-shadow:0 0 10px #00ffc8;">⚙ WORKSHOP</div><button id="ws-close" style="pointer-events:all;background:#ff447722;border:1px solid #ff4477aa;color:#ff6699;font:15px monospace;padding:5px 13px;border-radius:8px;">✕</button></div><div id="ws-poses" style="position:absolute;top:46px;left:0;right:0;display:flex;gap:7px;overflow-x:auto;padding:6px 12px;-webkit-overflow-scrolling:touch;"></div><div style="position:absolute;bottom:0;left:0;right:0;padding:10px 12px 18px;background:linear-gradient(0deg,rgba(2,6,14,0.94),rgba(2,6,14,0));"><div style="display:flex;gap:9px;justify-content:center;margin-bottom:10px;"><button id="ws-spin" style="background:#33ddff22;border:1px solid #33ddff77;color:#33ddff;font:11px Orbitron,monospace;padding:8px 14px;border-radius:8px;">↻ SPIN</button><button id="ws-boots" style="opacity:0.5;background:#00ffaa22;border:1px solid #00ffaa77;color:#00ffaa;font:11px Orbitron,monospace;padding:8px 14px;border-radius:8px;">BOOTS</button><button id="ws-zoom-out" style="background:#33ddff22;border:1px solid #33ddff77;color:#33ddff;font:14px monospace;padding:8px 14px;border-radius:8px;">−</button><button id="ws-zoom-in" style="background:#33ddff22;border:1px solid #33ddff77;color:#33ddff;font:14px monospace;padding:8px 14px;border-radius:8px;">+</button><button id="ws-fit" style="background:#33ddff22;border:1px solid #33ddff77;color:#33ddff;font:10px Orbitron,monospace;padding:8px 12px;border-radius:8px;">FIT</button></div><div id="ws-rot" style="max-width:520px;margin:0 auto;background:rgba(0,8,16,0.72);border:1px solid #1e3a52;border-radius:12px;padding:10px 12px;"><div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;"><span style="color:#7fb4d8;font-size:11px;">BOOT:</span><button id="ws-side-L" style="background:#00ffc822;border:1px solid #00ffc877;color:#00ffc8;font:11px monospace;padding:5px 13px;border-radius:7px;">LEFT</button><button id="ws-side-R" style="background:#ff993322;border:1px solid #ff993377;color:#ffb866;font:11px monospace;padding:5px 13px;border-radius:7px;">RIGHT</button><span style="color:#7fb4d8;font-size:10px;margin-left:6px;">MODE</span><button id="ws-mode-rot" style="background:#9fdcff22;border:1px solid #9fdcff66;color:#9fdcff;font:10px monospace;padding:5px 9px;border-radius:7px;">ROT</button><button id="ws-mode-pos" style="background:#9fdcff22;border:1px solid #9fdcff66;color:#9fdcff;font:10px monospace;padding:5px 9px;border-radius:7px;">POS</button><button id="ws-reset" style="margin-left:auto;background:#ff447722;border:1px solid #ff447766;color:#ff7799;font:10px monospace;padding:5px 11px;border-radius:7px;">RESET</button></div><div style="display:flex;align-items:center;gap:6px;margin:5px 0;justify-content:center;"><span style="width:16px;color:#ff6b6b;font-size:13px;font-weight:bold;">X</span><button class="ws-nudge" data-axis="x" data-deg="-5">−5</button><button class="ws-nudge" data-axis="x" data-deg="-1">−1</button><button class="ws-nudge" data-axis="x" data-deg="1">+1</button><button class="ws-nudge" data-axis="x" data-deg="5">+5</button></div><div style="display:flex;align-items:center;gap:6px;margin:5px 0;justify-content:center;"><span style="width:16px;color:#7bff7b;font-size:13px;font-weight:bold;">Y</span><button class="ws-nudge" data-axis="y" data-deg="-5">−5</button><button class="ws-nudge" data-axis="y" data-deg="-1">−1</button><button class="ws-nudge" data-axis="y" data-deg="1">+1</button><button class="ws-nudge" data-axis="y" data-deg="5">+5</button></div><div style="display:flex;align-items:center;gap:6px;margin:5px 0;justify-content:center;"><span style="width:16px;color:#6bb4ff;font-size:13px;font-weight:bold;">Z</span><button class="ws-nudge" data-axis="z" data-deg="-5">−5</button><button class="ws-nudge" data-axis="z" data-deg="-1">−1</button><button class="ws-nudge" data-axis="z" data-deg="1">+1</button><button class="ws-nudge" data-axis="z" data-deg="5">+5</button></div><div style="margin-top:9px;font-size:11px;color:#9fdcff;text-align:center;">L: <span id="ws-read-L">0°, 0°, 0°</span> &nbsp;·&nbsp; R: <span id="ws-read-R">0°, 0°, 0°</span></div><div style="margin-top:4px;font-size:10px;color:#7fd0ff;text-align:center;">pos L: <span id="ws-pos-L">0.00, 0.00, 0.00</span> &nbsp;·&nbsp; R: <span id="ws-pos-R">0.00, 0.00, 0.00</span></div></div></div></div>
-<button id="dbg-shop" onclick="window.openWorkshop&&window.openWorkshop()" style="position:fixed;bottom:0;right:328px;background:#00ffc822;border:1px solid #00ffc866;color:#00ffc8;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">SHOP</button>
+<button id="dbg-shop" onclick="window.openWorkshop&&window.openWorkshop()" style="position:fixed;bottom:0;right:60px;background:#00ffc822;border:1px solid #00ffc866;color:#00ffc8;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">SHOP</button><button id="dbg-enemy" style="position:fixed;bottom:0;right:124px;background:#ff66cc22;border:1px solid #ff66cc66;color:#ff66cc;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">ENEMY</button><div id="dbg-enemy-menu" style="display:none;position:fixed;bottom:30px;right:96px;z-index:100001;flex-direction:column;gap:5px;background:rgba(4,10,18,0.95);border:1px solid #ff66cc55;border-radius:8px;padding:6px;"><button class="dbg-enemy-pick" data-kind="spdr" style="background:#ff66cc22;border:1px solid #ff66cc66;color:#ff66cc;font:11px monospace;padding:6px 16px;border-radius:6px;">SPIDER</button><button class="dbg-enemy-pick" data-kind="droid" style="background:#ff772244;border:1px solid #ff882266;color:#ff8844;font:11px monospace;padding:6px 16px;border-radius:6px;">DROID</button><button class="dbg-enemy-pick" data-kind="ghost" style="background:#33ffcc22;border:1px solid #33ffcc66;color:#33ffcc;font:11px monospace;padding:6px 16px;border-radius:6px;">GHOST</button></div><button id="dbg-bot" onclick="window._botSpawnTap&&window._botSpawnTap(this)" style="position:fixed;bottom:0;right:196px;background:#ff447722;border:1px solid #ff447788;color:#ff6688;font:10px monospace;padding:4px 8px;z-index:100000;border-radius:4px 4px 0 0;">+BOT·D</button>
 <script>
 (function(){
   const panel=document.getElementById('dbg-panel');
@@ -21215,6 +21308,20 @@ try{ init(); requestAnimationFrame(loop); }catch(e){ console.error('Init failed:
   if(droidBtn) droidBtn.addEventListener('click',()=>{ if(window._spawnDroids) window._spawnDroids(2); });
   const ghostBtn=document.getElementById('dbg-ghost');
   if(ghostBtn) ghostBtn.addEventListener('click',()=>{ if(window._spawnGhosts) window._spawnGhosts(5); });
+  const enemyBtn=document.getElementById('dbg-enemy');
+  const enemyMenu=document.getElementById('dbg-enemy-menu');
+  if(enemyBtn&&enemyMenu){
+    enemyBtn.addEventListener('click',()=>{ enemyMenu.style.display=(enemyMenu.style.display==='flex'?'none':'flex'); });
+    enemyMenu.querySelectorAll('.dbg-enemy-pick').forEach(b=>{
+      b.addEventListener('click',()=>{
+        const k=b.getAttribute('data-kind');
+        if(k==='spdr'&&window._spawnTestSpiders) window._spawnTestSpiders(10);
+        else if(k==='droid'&&window._spawnDroids) window._spawnDroids(2);
+        else if(k==='ghost'&&window._spawnGhosts) window._spawnGhosts(5);
+        enemyMenu.style.display='none';
+      });
+    });
+  }
   const MAX=60;
   const lines=[];
   function addLine(type,args){
