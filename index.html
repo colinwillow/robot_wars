@@ -2201,8 +2201,8 @@ function _applyRobotModel(player, gltf){
       c.castShadow=false;
       if(c.material){
         // Add cyan emissive glow on top of baked texture
-        c.material.emissive=new THREE.Color(0x0044aa);
-        c.material.emissiveIntensity=2.0;
+        c.material.emissive=new THREE.Color(0x0d56cc);
+        c.material.emissiveIntensity=2.85;
         c.material.needsUpdate=true;
       }
     }
@@ -2302,10 +2302,15 @@ class Enemy{
     }
     if(this._kbVy||this._kbYOff){                     // airborne arc (applied to mesh.y after update())
       this._kbYOff=Math.max(0,(this._kbYOff||0)+(this._kbVy||0));
-      this._kbVy=(this._kbVy||0)-1.6;
-      if(this._kbYOff<=0 && this._kbVy<0){ this._kbYOff=0; this._kbVy=0; }
+      this._kbVy=(this._kbVy||0)-(this._kbTumble?1.0:1.6);          // floatier fall while tumbling -> real hang time
+      if(this._kbYOff<=0 && this._kbVy<0){ this._kbYOff=0; this._kbVy=0;
+        if(this._kbTumble){ this._kbTumble=false; if(this.mesh){ this.mesh.rotation.x=0; this.mesh.rotation.z=0; } this._kbRotX=0; this._kbRotZ=0; } }   // landed -> settle upright
     }
-    if(this._useKbLean&&this.mesh){
+    if(this._kbTumble&&this.mesh){                    // head-over-heels tumble through the arc
+      this._kbRotX=(this._kbRotX||0)+(this._kbSpin||0.3);
+      this._kbRotZ=(this._kbRotZ||0)+(this._kbSpinZ||0.12);
+      this.mesh.rotation.x=this._kbRotX; this.mesh.rotation.z=this._kbRotZ;
+    } else if(this._useKbLean&&this.mesh){
       if(this._kbLean>0.002) this._kbLean*=0.85; else this._kbLean=0;
       this.mesh.rotation.x=(this._kbLeanX||0)*this._kbLean;
       this.mesh.rotation.z=(this._kbLeanZ||0)*this._kbLean;
@@ -2350,7 +2355,7 @@ class Enemy{
     if(this.hp<=0){this.alive=false;this.die();return this.score;}
     return 0;
   }
-  knock(dirx, dirz, dmg=1, forceMul=1, lift=0){
+  knock(dirx, dirz, dmg=1, forceMul=1, lift=0, tumble=false){
     if(this.isBoss||this._noKnock) return;
     const mx=this.maxHp||1;
     const dmgPct=1-Math.max(0,this.hp)/mx;          // Smash-style: more damaged → flies further
@@ -2361,6 +2366,7 @@ class Enemy{
     const sp=Math.hypot(this._kbVx,this._kbVz), CAP=16*Math.max(1,forceMul);
     if(sp>CAP){ this._kbVx=this._kbVx/sp*CAP; this._kbVz=this._kbVz/sp*CAP; }
     if(lift>0) this._kbVy=(this._kbVy||0)+lift;       // pop airborne — Smash launch
+    if(tumble && lift>0){ this._kbTumble=true; this._kbSpin=0.24+Math.random()*0.20; this._kbSpinZ=(Math.random()-0.5)*0.26; this._kbRotX=0; this._kbRotZ=0; }   // tumble through the arc
     if(this._useKbLean){ this._kbLean=Math.min(0.85, force*0.05); this._kbLeanX=nz; this._kbLeanZ=-nx; }
   }
   die(){
@@ -6337,7 +6343,7 @@ class Grenade{
     for(let i=GS.enemies.length-1;i>=0;i--){ const e=GS.enemies[i]; const _dd=(e.wx-this.wx)**2+(e.wz-this.wz)**2;
       if(_dd<BR2){ const _prox=1-Math.sqrt(_dd)/BLAST_R;
         if(e._ballCapable && e.alive && !e._ball && typeof e.enterBall==='function'){ const _bd=Math.max(3,Math.ceil(30*_prox+4)); const pts=e.hit(_bd); if(pts>0){ GS.score+=pts*GS.mult; GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); e.remove(); GS.enemies.splice(i,1); registerKill(e); if(typeof spawnDebris==='function')spawnDebris(e.wx,e.wz); } else { e.enterBall(e.wx-this.wx,e.wz-this.wz, 80+_prox*170, 130+_prox*150); } }
-        else { const _bd=Math.max(3,Math.ceil(30*_prox+4)); const pts=e.hit(_bd); if(e.knock)e.knock(e.wx-this.wx,e.wz-this.wz,_bd,1.2+_prox*1.6,_prox*_prox*16); if(pts>0){ GS.score+=pts*GS.mult; GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); e.remove(); GS.enemies.splice(i,1); registerKill(e); } }
+        else { const _bd=Math.max(3,Math.ceil(30*_prox+4)); const pts=e.hit(_bd); if(e.knock)e.knock(e.wx-this.wx,e.wz-this.wz,_bd,1.2+_prox*1.6,_prox*_prox*16,true); if(pts>0){ GS.score+=pts*GS.mult; GS.gems.push(new Gem3D(e.wx+rand(-12,12),e.wz+rand(-12,12),'mult')); e.remove(); GS.enemies.splice(i,1); registerKill(e); } }
       } }
     if(typeof GS_bots!=='undefined') for(const _bot of GS_bots){ if(_bot.alive){ const _gd=Math.hypot(_bot.wx-this.wx,_bot.wz-this.wz); if(_gd<BLAST_R){ const _gN=Math.max(0,(BLAST_R-_gd)/BLAST_R); _bot.hit(Math.max(1,Math.ceil(_gN*3+1))); _bot.knock(_bot.wx-this.wx,_bot.wz-this.wz, 2+_gN*2, 130+_gN*90, 26+_gN*16); } } }
     if(player&&player.alive){ const pd=Math.hypot(player.wx-this.wx,player.wz-this.wz); if(pd<BLAST_R*0.7){ const s=1-pd/(BLAST_R*0.7), vy=s*s*120; if(vy>10) player.pvy=Math.max(player.pvy||0,vy); } }
@@ -10431,13 +10437,13 @@ class TrainingDummy{
     group.add(this._body);
 
     // Torso
-    const torsoMat=new THREE.MeshBasicMaterial({color:0xff4400,transparent:true,opacity:0.9,blending:THREE.AdditiveBlending,depthWrite:false});
+    const torsoMat=new THREE.MeshBasicMaterial({color:0xff5a1a,transparent:true,opacity:1.0,blending:THREE.AdditiveBlending,depthWrite:false});
     const torso=new THREE.Mesh(new THREE.CylinderGeometry(5,5,22,10),torsoMat);
     torso.position.y=11;
     this._body.add(torso);
 
     // Head
-    const headMat=new THREE.MeshBasicMaterial({color:0xff6600,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
+    const headMat=new THREE.MeshBasicMaterial({color:0xff8a2a,transparent:true,opacity:1.0,blending:THREE.AdditiveBlending,depthWrite:false});
     const head=new THREE.Mesh(new THREE.SphereGeometry(7,12,10),headMat);
     head.position.y=26;
     this._body.add(head);
@@ -13961,11 +13967,11 @@ function loop(ts){ requestAnimationFrame(loop);
               let dx=kvx,dz=kvz; if(dx*dx+dz*dz<1){ dx=e.wx-player.wx; dz=e.wz-player.wz; }
               if(e.knock){
                 if(kind==='bot') e.knock(dx,dz,mag,lift,stn);                                  // bot.knock(mag,lift,stun) — unchanged
-                else if(kind==='enemy'){ let _ed,_ef,_el;                                       // enemy.knock(dmg,forceMul,lift): gentle shove + subtle hop
-                  if(tier>=3){ _ed=10; _ef=2.4; _el=27; }        // finisher: launch away + a bit of air
-                  else if(tier===2){ _ed=4; _ef=0.8; _el=21; }   // upswing: pop a touch higher
-                  else { _ed=4; _ef=0.9; _el=14; }               // sweep: little shove + subtle air (re-hittable)
-                  e.knock(dx,dz,_ed,_ef,_el); }
+                else if(kind==='enemy'){ let _ed,_ef,_el;                                       // enemy.knock(dmg,forceMul,lift,tumble): tumbling pop, floaty land
+                  if(tier>=3){ _ed=10; _ef=2.4; _el=19; }        // finisher: launch away, big tumble
+                  else if(tier===2){ _ed=4; _ef=0.8; _el=15; }   // upswing: tumble a touch higher
+                  else { _ed=4; _ef=0.9; _el=11; }               // sweep: small tumbling pop (re-hittable)
+                  e.knock(dx,dz,_ed,_ef,_el,true); }
               }
               if(typeof addTrauma==='function')addTrauma(tier>=3?0.14:0.05);
               if(typeof Audio!=='undefined'&&Audio.blip)Audio.blip(tier>=3?90:150,0.1,'square',0.2,tier>=3?60:600);
