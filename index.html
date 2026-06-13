@@ -19905,7 +19905,7 @@ window._reorientHammer=function(){ _orientHammer(); };
 const _LAUNCHER_SCALE=1.15;   // world size of the hand launcher (tunable)
 function _makeHandLauncher(side){
   const g=new THREE.Group();
-  const METAL=new THREE.MeshStandardMaterial({color:0x1b2740,metalness:0.7,roughness:0.35,emissive:0x0a1830,emissiveIntensity:0.5});
+  const METAL=new THREE.MeshStandardMaterial({color:0x33507e,metalness:0.65,roughness:0.32,emissive:0x16506e,emissiveIntensity:0.4});   // lighter body -> visible in the dark
   const ACC =new THREE.MeshStandardMaterial({color:0x18e0ff,metalness:0.6,roughness:0.3,emissive:0x0a86b0,emissiveIntensity:0.9});
   const GLOW=new THREE.MeshBasicMaterial({color:0xff7a3c,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
   const body=new THREE.Mesh(new THREE.BoxGeometry(3.4,3.4,8), METAL); body.position.set(0,0,5.2); g.add(body);   // body sits just ahead of the fist, barrel down +Z
@@ -19956,7 +19956,7 @@ function _orientHandLauncher(obj,bone,fore){
 function _makeWeaponHandModel(weapon,side){
   if(weapon==='rockets') return _makeHandLauncher(side);
   const COL=(typeof _WPN_COLORS!=='undefined'&&_WPN_COLORS[weapon])||0x00ccff;
-  const METAL=new THREE.MeshStandardMaterial({color:0x1b2740,metalness:0.7,roughness:0.35,emissive:0x0a1830,emissiveIntensity:0.5});
+  const METAL=new THREE.MeshStandardMaterial({color:0x33507e,metalness:0.65,roughness:0.32,emissive:COL,emissiveIntensity:0.32});   // lighter, weapon-tinted body -> visible in the dark
   const ACC =new THREE.MeshStandardMaterial({color:COL,metalness:0.55,roughness:0.3,emissive:COL,emissiveIntensity:0.85});
   const GLOW=new THREE.MeshBasicMaterial({color:COL,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false});
   const g=new THREE.Group();
@@ -20005,6 +20005,8 @@ function _makeWeaponHandModel(weapon,side){
     add(new THREE.CylinderGeometry(0.7,0.7,5,12),METAL,0,0.3,6.6,HP);
     add(new THREE.CircleGeometry(0.8,12),GLOW,0,0.3,9.15); grip();
   }
+  const _eMat=new THREE.LineBasicMaterial({color:COL,transparent:true,opacity:0.92});   // neon wire outline so the silhouette pops
+  for(const c of g.children.slice()){ if(c.geometry){ const e=new THREE.LineSegments(new THREE.EdgesGeometry(c.geometry), _eMat); e.position.copy(c.position); e.rotation.copy(c.rotation); e.scale.copy(c.scale); g.add(e); } }
   return g;
 }
 function _ensureHandWeapon(side,show,bone,weapon){
@@ -20043,7 +20045,10 @@ function _shoulderRig(side, want, weapon, bones, dt){
       m.userData._wpn=weapon; m.scale.setScalar(_LAUNCHER_SCALE); scene.add(m);
       const hp=new THREE.Vector3(); if(!_handWorld(bones,side,hp)&&haveT) hp.copy(tPos);   // launch from the hand
       m.position.copy(hp); if(haveT) m.quaternion.copy(tQ);
-      R=player[K]={mesh:m, state:'flying', wpn:weapon, p:hp.clone(), q:m.quaternion.clone()};
+      R=player[K]={mesh:m, state:'flying', wpn:weapon, p:hp.clone(), q:m.quaternion.clone(),
+        v:new THREE.Vector3((Math.random()-0.5)*24, (window._SH_POP_UP!=null?window._SH_POP_UP:95), (Math.random()-0.5)*24),   // toss UP off the hand
+        spin:(window._SH_SPIN!=null?window._SH_SPIN:20)+Math.random()*6,                                                       // ~a flip or two
+        axis:new THREE.Vector3(Math.random()*2-1,(Math.random()*2-1)*0.35,Math.random()*2-1).normalize(), flyT:0 };
     } else if(R.wpn!==weapon){
       if(R.mesh&&R.mesh.parent)R.mesh.parent.remove(R.mesh);
       const m=_makeWeaponHandModel(weapon, side==='L'?-1:1); if(m){ m.userData._wpn=weapon; m.scale.setScalar(_LAUNCHER_SCALE); m.position.copy(R.p); m.quaternion.copy(R.q); scene.add(m); R.mesh=m; } R.wpn=weapon;
@@ -20059,12 +20064,26 @@ function _shoulderRig(side, want, weapon, bones, dt){
   let gx=tPos, gq=tQ, ok=haveT;
   if(R.state==='returning'){ const hp=new THREE.Vector3(); if(_handWorld(bones,side,hp)){ gx=hp; ok=true; } }
   if(!ok){ m.position.copy(R.p); return; }
-  const E=(window._SH_FLY_EASE!=null?window._SH_FLY_EASE:6.0), k=1-Math.exp(-E*(dt||0.016));
-  R.p.lerp(gx,k); R.q.slerp(gq,Math.min(1,k*1.35)); m.position.copy(R.p); m.quaternion.copy(R.q);
-  if(typeof ps!=='undefined' && Math.random()<0.7){ ps._spawn(R.p.x,R.p.y,R.p.z, (Math.random()-0.5)*26,(Math.random()-0.5)*26-12,(Math.random()-0.5)*26, 1,0.66,0.3, 0.02+Math.random()*0.02); }   // booster puff
-  const d=R.p.distanceTo(gx);
-  if(R.state==='flying' && d<(window._SH_DOCK!=null?window._SH_DOCK:3.5)){ R.state='docked'; if(typeof ps!=='undefined')ps.ring(R.p.x,R.p.z,[0.5,0.95,1],11,90); if(typeof Audio!=='undefined'){ try{ Audio.blip(520,0.05,'square',0.12,1000); }catch(_){ } } }   // touchdown
-  if(R.state==='returning' && d<5){ if(m.parent)m.parent.remove(m); player[K]=null; }
+  const dts=(dt||0.016), E=(window._SH_FLY_EASE!=null?window._SH_FLY_EASE:6.0), k=1-Math.exp(-E*dts);
+  if(R.state==='flying'){
+    R.flyT=(R.flyT||0)+dts;
+    const POP=(window._SH_POP_HOLD!=null?window._SH_POP_HOLD:0.14), RAMP=(window._SH_HOME_RAMP!=null?window._SH_HOME_RAMP:0.5);
+    const hw=Math.max(0,Math.min(1,(R.flyT-POP)/RAMP));                 // 0 = free toss/flip, 1 = fully homing
+    if(!R.v) R.v=new THREE.Vector3();
+    R.v.y -= (window._SH_GRAV!=null?window._SH_GRAV:240)*dts;           // gravity on the toss
+    R.p.addScaledVector(R.v, dts*(1-hw));                              // ballistic pop, fades as homing takes over
+    R.p.lerp(gx, k*hw);                                               // homing pull onto the shoulder
+    const sp=(R.spin||0)*(1-hw);                                      // flips, fading out as it settles
+    if(R.axis && sp>1e-4) R.q.premultiply(new THREE.Quaternion().setFromAxisAngle(R.axis, sp*dts));
+    R.q.slerp(gq, Math.min(1,k*(0.15+hw*1.4)));                       // align to the docked pose on the way down
+    m.position.copy(R.p); m.quaternion.copy(R.q);
+    if(typeof ps!=='undefined' && Math.random()<0.75){ ps._spawn(R.p.x,R.p.y,R.p.z, (Math.random()-0.5)*26,(Math.random()-0.5)*26-12,(Math.random()-0.5)*26, 1,0.66,0.3, 0.02+Math.random()*0.02); }
+    if(hw>0.6 && R.p.distanceTo(gx)<(window._SH_DOCK!=null?window._SH_DOCK:3.5)){ R.state='docked'; if(typeof ps!=='undefined')ps.ring(R.p.x,R.p.z,[0.5,0.95,1],11,90); if(typeof Audio!=='undefined'){ try{ Audio.blip(520,0.05,'square',0.12,1000); }catch(_){ } } }   // touchdown
+  } else {                                                            // returning -> simple fly back to the hand
+    R.p.lerp(gx,k); R.q.slerp(gq,Math.min(1,k*1.35)); m.position.copy(R.p); m.quaternion.copy(R.q);
+    if(typeof ps!=='undefined' && Math.random()<0.5){ ps._spawn(R.p.x,R.p.y,R.p.z, (Math.random()-0.5)*22,(Math.random()-0.5)*22-8,(Math.random()-0.5)*22, 1,0.66,0.3, 0.02+Math.random()*0.02); }
+    if(R.p.distanceTo(gx)<5){ if(m.parent)m.parent.remove(m); player[K]=null; }
+  }
 }
 // world muzzle point for the current alternating shot slot, by stance: hands / left-hand+right-shoulder (1H melee) / both-shoulders (2H melee)
 function _stanceMuzzle(pl, slot, out){
