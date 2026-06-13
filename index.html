@@ -13223,6 +13223,7 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
     jL._swipeHist=[];
     const t=e.changedTouches[0];
     jL._swipeHist.push({x:t.clientX,y:t.clientY,time:performance.now()});
+    jL._tStart=performance.now(); jL._tX=t.clientX; jL._tY=t.clientY; jL._meleeFlicked=false;   // TAP (cycle melee) vs FLICK (directional) detection
   };
   jL._move=function(e){
     origMoveL(e);
@@ -13245,6 +13246,16 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
           const svy=(newest.y-oldest.y)/(elapsed||1);
           const spd=Math.hypot(svx,svy);
           if(spd>0.3&&elapsed<220){
+            jL._meleeFlicked=true;
+            if(window._meleeOnLeftStick){
+              // ── LEFT-STICK FLICK MELEE — SURGICAL: turn toward the flicked direction and swing (cycles the combo) ──
+              if(player.alive&&!player._wallClimb&&!player._hang&&!player._crestSeq&&GS.state==='playing'){
+                const _fcy=Math.cos(CAM.yaw), _fsy=Math.sin(CAM.yaw);
+                const _fwx=svx*_fcy+svy*_fsy, _fwz=-svx*_fsy+svy*_fcy;
+                _doMeleeFlick(player.model&&player.model.userData, Math.atan2(_fwz,_fwx), undefined);
+                jL._tapMoved=true;
+              }
+            } else {
             const cy=Math.cos(CAM.yaw), sy=Math.sin(CAM.yaw);
             const wx=svx*cy+svy*sy, wz=-svx*sy+svy*cy;
             const len=Math.hypot(wx,wz)||1;
@@ -13297,7 +13308,15 @@ const jL=new Joystick(document.getElementById('joystick-left'),document.getEleme
               Audio.blip(640,0.10,'square',0.08,1800);
             }
             jL._tapMoved=true;
+            }
           }
+        }
+        // TAP (no flick) -> cycle-combo melee + auto-target the nearest enemy in range
+        if(window._meleeOnLeftStick && !jL._meleeFlicked && player && player.alive && GS.state==='playing'
+           && !player._wallClimb && !player._hang && !player._crestSeq){
+          const _dur=performance.now()-(jL._tStart||0);
+          const _disp=Math.hypot(t.clientX-(jL._tX||t.clientX), t.clientY-(jL._tY||t.clientY));
+          if(_dur<240 && _disp<16) _doMeleeTap();
         }
         break;
       }
@@ -14283,7 +14302,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(flickActive&&player) player._flickCooldown--;
 
       // ── RIGHT-STICK FLICK MELEE — a quick snap-out-AND-back = melee; pushing & holding = aim/fire ──
-      if(IS_TOUCH && player && player.alive && GS.state==='playing' && !grenadeActive && !CAM.aimMode && !player._wallClimb && !player._hang && !player._crestSeq){
+      if(!window._meleeOnLeftStick && IS_TOUCH && player && player.alive && GS.state==='playing' && !grenadeActive && !CAM.aimMode && !player._wallClimb && !player._hang && !player._crestSeq){
         const _fmag=Math.hypot(shootIn.x,shootIn.y);
         const _now=performance.now();
         if(player._flickPending){                                   // a snap-out is in progress — did it come back in time?
@@ -19520,7 +19539,9 @@ let _MELEE_TRIM_START=0.167;  // sec skipped off the START of each swing (~5 fra
 let _MELEE_TRIM_END=0.167;    // sec cut off the END (~5 frames) -> locomotion takes over sooner
 let _MELEE_FLICK_WINDOW_MS=160;  // a flick must snap out AND return within this many ms; holding longer = aim/fire instead
 if(typeof window!=='undefined' && window._meleeUpperBody===undefined) window._meleeUpperBody=false;   // FULL-BODY swing (legs+torso play the whole clip). set true for the upper-body additive split.
-if(typeof window!=='undefined' && window._meleeLandLock===undefined) window._meleeLandLock=false;     // movement free during the swing. set true later (with short clips) to plant in place.
+if(typeof window!=='undefined' && window._meleeLandLock===undefined) window._meleeLandLock=true;      // PLANT in place during the swing -> can't interrupt the attack by moving
+if(typeof window!=='undefined' && window._meleeOnLeftStick===undefined) window._meleeOnLeftStick=true; // melee = LEFT-stick flick (moved off the right stick)
+if(typeof window!=='undefined' && window._MELEE_AUTOAIM_R===undefined) window._MELEE_AUTOAIM_R=90;      // TAP melee auto-faces the nearest enemy within this range
 // ── upper-body additive swing: clone the melee clip, drop leg/hip tracks, rebase as additive-over-idle, layer it on the running legs (no GLB split needed) ──
 const _MELEE_LOWER_RE=/(Hips|Leg|Foot|Toe)/i;   // bones EXCLUDED from the upper-body layer (legs/hips stay driven by locomotion)
 function _buildAdditiveMelee(ud,name){
@@ -19589,6 +19610,17 @@ function _doMeleeFlick(ud, dirAngle, comboOverride){
   player._rollAimLock=true;
   if(typeof Audio!=='undefined'&&Audio.blip) Audio.blip(170+player._meleeCombo*55,0.09,'square',0.16,520);
   if(typeof _spawnSlashArc==='function') _spawnSlashArc(player._meleeCombo||1);
+}
+function _doMeleeTap(){
+  if(!player||!player.model||!player.model.userData) return;
+  // auto-target: face the nearest enemy in range so taps connect; tap again -> next combo in the cycle
+  let best=null, bd=1e9; const R=window._MELEE_AUTOAIM_R||90;
+  const list=(typeof GS!=='undefined'&&GS.enemies)?GS.enemies:[];
+  for(let i=0;i<list.length;i++){ const e=list[i]; if(!e||e.alive===false||e._captured) continue;
+    const dx=e.wx-player.wx, dz=e.wz-player.wz; const d=Math.hypot(dx,dz);
+    if(d<bd && d<R){ bd=d; best=e; } }
+  const dir = best ? Math.atan2(best.wz-player.wz, best.wx-player.wx) : null;   // face the target (null -> keep current facing)
+  _doMeleeFlick(player.model.userData, dir, undefined);                          // undefined combo -> CYCLE to the next attack
 }
 const _HAMMER_POS=new THREE.Vector3(0,0.5,0);         // model-relative seat offset (tunable)
 function _makeRoboHammer(){
