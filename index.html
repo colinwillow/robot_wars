@@ -14552,7 +14552,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(player._boots&&player._boots.length&&window._reorientGameBoots){ const _bmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_bmv) window._reorientGameBoots(); }
       if(player._hammer&&window._reorientHammer){ if(player._hammer._dirBone){ window._reorientHammer(); } else { const _mt=(player.model&&player.model.userData&&player.model.userData._meleeTimer>0); const _hmv=Math.hypot(player.vx||0,player.vz||0)>8||Math.abs(player.pvy||0)>8; if(!_hmv&&!_mt) window._reorientHammer(); } }   // re-baseline boots to the resting (idle) foot pose whenever standing still -> always correct, no panel needed
       if(typeof _updateSlashFX==='function') _updateSlashFX(dt);
-      if(typeof _updateHandWeapons==='function') _updateHandWeapons();
+      if(typeof _updateHandWeapons==='function') _updateHandWeapons(dt);
       if(GS.zone===-16) updateGrindRail(dt);
       { // ── DROP-THROUGH: HOLD the left stick down (a flick = dash) while on a platform ──
         const downHeld=(moveIn.y>0.55)||((keys['KeyS']||keys['ArrowDown'])&&!(keys['KeyW']||keys['ArrowUp']));
@@ -20020,27 +20020,51 @@ function _ensureHandWeapon(side,show,bone,weapon){
 // ── chest/spine anchor for shoulder-mounted launchers (stable: won't swing with the melee arm) ──
 function _chestBone(bones){ return (bones&&(bones['mixamorig_Spine2']||bones['mixamorig_Spine1']||bones['mixamorig_Spine']||bones['mixamorig_Neck']||bones['mixamorig_Hips']))||null; }
 function _meleeTwoHanded(){ const t=player&&player._meleeType, st=t&&window._MELEE_STATS&&window._MELEE_STATS[t]; return !!(st&&st.hands===2); }
-function _ensureShoulderWeapon(side,show,anchor,weapon){
-  const key='_shWpn'+side;
-  if(show&&anchor){
-    if(player[key]&&(player[key].userData._wpn!==weapon||player[key].parent!==anchor)){ if(player[key].parent)player[key].parent.remove(player[key]); player[key]=null; }
-    if(!player[key]){ const m=_makeWeaponHandModel(weapon, side==='L'?-1:1); if(m){ m.userData._wpn=weapon; anchor.add(m); player[key]=m; if(typeof ps!=='undefined'){ const wp=m.getWorldPosition(new THREE.Vector3()); ps.ring(wp.x,wp.z,[0.45,0.95,1],9,70); } } }   // little pop when it docks
-  } else if(player[key]){ if(player[key].parent)player[key].parent.remove(player[key]); player[key]=null; }
-}
-function _orientShoulderLauncher(obj,anchor,side){
-  if(!obj||!anchor||!player||!player.model) return;
-  player.model.updateWorldMatrix(true,true);
+// ── shoulder launcher with rocket-style fly-up homing: detaches at the hand, flips, eases onto the shoulder; flies back on stow ──
+function _shoulderTargetTransform(anchor, side, outPos, outQuat){
+  if(!anchor) return false;
   const a=player.aim||0, aim=new THREE.Vector3(Math.cos(a),0,Math.sin(a)), _up=new THREE.Vector3(0,1,0);
   let _right=new THREE.Vector3().crossVectors(_up,aim); if(_right.lengthSq()<1e-6)_right.set(1,0,0); _right.normalize();
   const _up2=new THREE.Vector3().crossVectors(aim,_right).normalize();
-  const desired=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(_right,_up2,aim));   // barrel(+Z) -> aim direction
-  const bq=anchor.getWorldQuaternion(new THREE.Quaternion());
-  obj.quaternion.copy(bq.clone().invert().multiply(desired));
-  const bp=anchor.getWorldPosition(new THREE.Vector3()), bs=anchor.getWorldScale(new THREE.Vector3());
-  const lift=(window._SH_LIFT!=null?window._SH_LIFT:9), out=(window._SH_OUT!=null?window._SH_OUT:10)*(side==='R'?1:-1), back=(window._SH_BACK!=null?window._SH_BACK:-2);
-  const wpos=bp.clone().addScaledVector(_up,lift).addScaledVector(_right,out).addScaledVector(aim,back);   // sit it up on the shoulder
-  obj.position.copy(wpos.applyMatrix4(new THREE.Matrix4().copy(anchor.matrixWorld).invert()));
-  obj.scale.setScalar((1/(Math.abs(bs.x)||1))*_LAUNCHER_SCALE);
+  outQuat.setFromRotationMatrix(new THREE.Matrix4().makeBasis(_right,_up2,aim));   // barrel(+Z) -> aim
+  const bp=anchor.getWorldPosition(new THREE.Vector3());
+  const lift=(window._SH_LIFT!=null?window._SH_LIFT:11), out=(window._SH_OUT!=null?window._SH_OUT:7)*(side==='R'?-1:1), back=(window._SH_BACK!=null?window._SH_BACK:-2);
+  outPos.copy(bp).addScaledVector(_up,lift).addScaledVector(_right,out).addScaledVector(aim,back);   // R arm -> R shoulder, nudged headward
+  return true;
+}
+function _handWorld(bones,side,outPos){ const b=bones[side==='R'?'mixamorig_RightHand':'mixamorig_LeftHand']; if(!b)return false; b.getWorldPosition(outPos); return true; }
+function _shoulderRig(side, want, weapon, bones, dt){
+  const K='_sh'+side; let R=player[K];
+  const CH=_chestBone(bones);
+  const tPos=new THREE.Vector3(), tQ=new THREE.Quaternion(); const haveT=_shoulderTargetTransform(CH, side, tPos, tQ);
+  if(want){
+    if(!R){
+      const m=_makeWeaponHandModel(weapon, side==='L'?-1:1); if(!m) return;
+      m.userData._wpn=weapon; m.scale.setScalar(_LAUNCHER_SCALE); scene.add(m);
+      const hp=new THREE.Vector3(); if(!_handWorld(bones,side,hp)&&haveT) hp.copy(tPos);   // launch from the hand
+      m.position.copy(hp); if(haveT) m.quaternion.copy(tQ);
+      R=player[K]={mesh:m, state:'flying', wpn:weapon, p:hp.clone(), q:m.quaternion.clone()};
+    } else if(R.wpn!==weapon){
+      if(R.mesh&&R.mesh.parent)R.mesh.parent.remove(R.mesh);
+      const m=_makeWeaponHandModel(weapon, side==='L'?-1:1); if(m){ m.userData._wpn=weapon; m.scale.setScalar(_LAUNCHER_SCALE); m.position.copy(R.p); m.quaternion.copy(R.q); scene.add(m); R.mesh=m; } R.wpn=weapon;
+    }
+    if(R.state==='returning') R.state='flying';
+  } else {
+    if(!R) return;
+    if(R.state!=='returning') R.state='returning';   // fly back to the hand
+  }
+  const m=R.mesh; if(!m){ player[K]=null; return; }
+  if(R.state==='docked'){ if(haveT){ m.position.copy(tPos); m.quaternion.copy(tQ); R.p.copy(tPos); R.q.copy(tQ); } return; }
+  // flying / returning -> arrival ease toward goal (a MOVING target, so running away makes it trail + catch up)
+  let gx=tPos, gq=tQ, ok=haveT;
+  if(R.state==='returning'){ const hp=new THREE.Vector3(); if(_handWorld(bones,side,hp)){ gx=hp; ok=true; } }
+  if(!ok){ m.position.copy(R.p); return; }
+  const E=(window._SH_FLY_EASE!=null?window._SH_FLY_EASE:6.0), k=1-Math.exp(-E*(dt||0.016));
+  R.p.lerp(gx,k); R.q.slerp(gq,Math.min(1,k*1.35)); m.position.copy(R.p); m.quaternion.copy(R.q);
+  if(typeof ps!=='undefined' && Math.random()<0.7){ ps._spawn(R.p.x,R.p.y,R.p.z, (Math.random()-0.5)*26,(Math.random()-0.5)*26-12,(Math.random()-0.5)*26, 1,0.66,0.3, 0.02+Math.random()*0.02); }   // booster puff
+  const d=R.p.distanceTo(gx);
+  if(R.state==='flying' && d<(window._SH_DOCK!=null?window._SH_DOCK:3.5)){ R.state='docked'; if(typeof ps!=='undefined')ps.ring(R.p.x,R.p.z,[0.5,0.95,1],11,90); if(typeof Audio!=='undefined'){ try{ Audio.blip(520,0.05,'square',0.12,1000); }catch(_){ } } }   // touchdown
+  if(R.state==='returning' && d<5){ if(m.parent)m.parent.remove(m); player[K]=null; }
 }
 // world muzzle point for the current alternating shot slot, by stance: hands / left-hand+right-shoulder (1H melee) / both-shoulders (2H melee)
 function _stanceMuzzle(pl, slot, out){
@@ -20048,26 +20072,25 @@ function _stanceMuzzle(pl, slot, out){
   const melee=!!pl._hammer, twoH=melee&&_meleeTwoHanded();
   let kind; if(!melee) kind=(slot===0?'RH':'LH'); else if(twoH) kind=(slot===0?'RS':'LS'); else kind=(slot===0?'LH':'RS');
   if(kind==='RH'||kind==='LH'){ const b=bones[kind==='RH'?'mixamorig_RightHand':'mixamorig_LeftHand']; if(!b)return null; b.getWorldPosition(out); return 'hand'; }
-  const g=(kind==='RS')?pl._shWpnR:pl._shWpnL;
-  if(g){ g.getWorldPosition(out); const a=pl.aim||0; out.x+=Math.cos(a)*7; out.z+=Math.sin(a)*7; out.y+=0.3; return 'shoulder'; }   // barrel tip of the docked shoulder gun
+  const rig=(kind==='RS')?pl._shR:pl._shL;
+  if(rig&&rig.mesh){ rig.mesh.getWorldPosition(out); const a=pl.aim||0; out.x+=Math.cos(a)*7; out.z+=Math.sin(a)*7; out.y+=0.3; return 'shoulder'; }   // barrel tip of the shoulder launcher
   const CH=_chestBone(bones); if(CH){ CH.getWorldPosition(out); out.y+=9; return 'shoulder'; }
   const hb=bones['mixamorig_LeftHand']; if(hb){ hb.getWorldPosition(out); return 'hand'; } return null;
 }
-function _updateHandWeapons(){
+function _updateHandWeapons(dt){
   if(!player||!player.model) return;
   const ud=player.model.userData, bones=ud&&ud.bones; if(!bones) return;
   const weapon=player.primaryWeapon||'bullets';
   const meleeOut=!!player._hammer, twoH=meleeOut&&_meleeTwoHanded();
   const RH=bones['mixamorig_RightHand'], LH=bones['mixamorig_LeftHand'];
-  const LF=_foreArmBone(bones,'L'), RF=_foreArmBone(bones,'R'), CH=_chestBone(bones);
-  _ensureHandWeapon('L', !twoH, LH, weapon);          // left hand carries the gun — unless a 2-handed melee occupies both hands
-  _ensureHandWeapon('R', !meleeOut, RH, weapon);      // right hand carries the gun — unless it's holding a melee weapon
-  _ensureShoulderWeapon('R', meleeOut, CH, weapon);   // melee equipped -> right gun flies up & docks to the shoulder
-  _ensureShoulderWeapon('L', twoH, CH, weapon);       // 2-handed melee -> left gun docks to the other shoulder too
+  const LF=_foreArmBone(bones,'L'), RF=_foreArmBone(bones,'R');
+  // a hand gun stays hidden while its launcher is away on the shoulder (or anywhere in transit) -> no duplicate
+  _ensureHandWeapon('L', !twoH && !player._shL, LH, weapon);
+  _ensureHandWeapon('R', !meleeOut && !player._shR, RH, weapon);
   if(player._handWpnL&&LH) _orientHandLauncher(player._handWpnL,LH,LF);
   if(player._handWpnR&&RH) _orientHandLauncher(player._handWpnR,RH,RF);
-  if(player._shWpnR&&CH) _orientShoulderLauncher(player._shWpnR,CH,'R');
-  if(player._shWpnL&&CH) _orientShoulderLauncher(player._shWpnL,CH,'L');
+  _shoulderRig('R', meleeOut, weapon, bones, dt);   // right gun -> right shoulder when melee is out
+  _shoulderRig('L', twoH,   weapon, bones, dt);     // left gun -> left shoulder only for 2-handed melee
 }
 window._updateHandWeapons=_updateHandWeapons;
 window._updateHandLaunchers=_updateHandWeapons;   // back-compat alias
