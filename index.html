@@ -416,7 +416,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
         color:#fff;text-shadow:0 0 20px #4488ff66"><span class="sheen">MISSION CONTROL</span></div>
     </div>
     <div style="display:flex;flex-direction:column;gap:14px;width:100%;max-width:320px;padding:0 20px;position:relative">
-      <button onclick="window._showScreen('character')" class="mode-btn" style="--c:#00ffc8">
+      <button onclick="window._showScreen('gamemode')" class="mode-btn" style="--c:#00ffc8">
         <span style="display:flex"><svg width="26" height="26" viewBox="0 0 24 24" stroke="#00ffc8" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#00ffc8;animation-delay:0s"><circle cx="12" cy="12" r="7"/><path d="M12 1.5V5M12 19v3.5M1.5 12H5M19 12h3.5"/><circle cx="12" cy="12" r="1.6"/></svg></span>
         <div><div style="font-size:14px;letter-spacing:4px">SINGLE PLAYER</div><div style="font-size:9px;color:#ffffff44;letter-spacing:2px;margin-top:3px">CAMPAIGN · ARENA · GALAXY</div></div>
       </button>
@@ -430,6 +430,35 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
       </button>
     </div>
     <button onclick="window._showScreen('title')" style="margin-top:28px;font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:4px;color:#ffffff33;background:none;border:none;cursor:pointer"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:7px"><path d="M15 5 8 12l7 7"/></svg>BACK</button>
+  </div>
+
+  <!-- ══ GAME MODE SELECT ══ -->
+  <div id="screen-gamemode" style="display:none;position:fixed;inset:0;flex-direction:column;align-items:center;justify-content:center;
+    background:radial-gradient(ellipse at 50% 30%,#0a1428 0%,#000 70%)">
+    <div style="position:relative;text-align:center;margin-bottom:32px">
+      <div style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:6px;color:#00ffc866;margin-bottom:8px">── SINGLE PLAYER ──</div>
+      <div style="font-family:'Orbitron',sans-serif;font-size:clamp(24px,6vw,36px);font-weight:900;letter-spacing:4px;
+        color:#fff;text-shadow:0 0 20px #4488ff66"><span class="sheen">SELECT MODE</span></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px;width:100%;max-width:320px;padding:0 20px;position:relative">
+      <button onclick="window._gameMode='freeroam';window._showScreen('character')" class="mode-btn" style="--c:#00ffc8">
+        <span style="display:flex"><svg width="26" height="26" viewBox="0 0 24 24" stroke="#00ffc8" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#00ffc8;animation-delay:0s"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg></span>
+        <div><div style="font-size:14px;letter-spacing:4px">FREE ROAM</div><div style="font-size:9px;color:#ffffff44;letter-spacing:2px;margin-top:3px">EXPLORE EVERY LEVEL</div></div>
+      </button>
+      <button onclick="window._gameMode='survival';window._showScreen('character')" class="mode-btn" style="--c:#ff2a6d">
+        <span style="display:flex"><svg width="26" height="26" viewBox="0 0 24 24" stroke="#ff2a6d" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#ff2a6d;animation-delay:-0.8s"><path d="M12 3l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 17.6l-5.2 2.4 1-5.8-4.2-4.1 5.8-.8z"/></svg></span>
+        <div><div style="font-size:14px;letter-spacing:4px">SURVIVAL</div><div style="font-size:9px;color:#ffffff44;letter-spacing:2px;margin-top:3px">ENDLESS WAVES</div></div>
+      </button>
+      <button onclick="window._gameMode='training';window._showScreen('character')" class="mode-btn" style="--c:#ff8800">
+        <span style="display:flex"><svg width="26" height="26" viewBox="0 0 24 24" stroke="#ff8800" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#ff8800;animation-delay:-1.2s"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="0.8"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg></span>
+        <div><div style="font-size:14px;letter-spacing:4px">TRAINING</div><div style="font-size:9px;color:#ffffff44;letter-spacing:2px;margin-top:3px">LEARN THE CONTROLS</div></div>
+      </button>
+      <button class="mode-btn" style="--c:#aa44ff;opacity:0.42;cursor:default" disabled>
+        <span style="display:flex"><svg width="26" height="26" viewBox="0 0 24 24" stroke="#aa44ff" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#aa44ff"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15" r="1.3"/></svg></span>
+        <div><div style="font-size:14px;letter-spacing:4px">STORY</div><div style="font-size:9px;color:#ffffff33;letter-spacing:2px;margin-top:3px">COMING SOON</div></div>
+      </button>
+    </div>
+    <button onclick="window._showScreen('mode')" style="margin-top:28px;font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:4px;color:#ffffff33;background:none;border:none;cursor:pointer"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:7px"><path d="M15 5 8 12l7 7"/></svg>BACK</button>
   </div>
 
   <!-- ══ CHARACTER SELECT ══ -->
@@ -460,19 +489,43 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
         <div style="font-family:'Orbitron',sans-serif;font-size:8px;color:#ffffff22;letter-spacing:2px;margin-top:3px">COMING SOON</div>
       </div>
     </div>
-    <button onclick="window._showScreen('levelselect')" style="
+    <button onclick="window._deploy()" style="
       font-family:'Orbitron',sans-serif;font-size:16px;font-weight:900;
       letter-spacing:6px;padding:14px 40px;margin-top:28px;
       background:transparent;border:2px solid #00ffc8;color:#00ffc8;
       box-shadow:0 0 20px #00ffc833;cursor:pointer;position:relative">DEPLOY<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mi" style="vertical-align:-2px;margin-left:8px"><path d="M7 4.5 19 12 7 19.5Z"/></svg></button>
-    <button onclick="window._showScreen('mode')" style="margin-top:14px;font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:4px;color:#ffffff33;background:none;border:none;cursor:pointer"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:7px"><path d="M15 5 8 12l7 7"/></svg>BACK</button>
+    <button onclick="window._showScreen('gamemode')" style="margin-top:14px;font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:4px;color:#ffffff33;background:none;border:none;cursor:pointer"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:7px"><path d="M15 5 8 12l7 7"/></svg>BACK</button>
   </div>
 
   <!-- ══ LEVEL SELECT ══ -->
   <div id="screen-levelselect" style="display:none;position:fixed;inset:0;flex-direction:column;align-items:center;
     background:#000;overflow-y:auto;padding:20px 0 40px">
-    <div style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:6px;color:#00ffc866;margin:20px 0 4px;text-align:center">── SELECT ZONE ──</div>
-    <div style="font-family:'Orbitron',sans-serif;font-size:clamp(18px,5vw,26px);font-weight:900;letter-spacing:4px;color:#fff;margin-bottom:20px;text-align:center"><span class="sheen">CHOOSE MISSION</span></div>
+    <div style="font-family:'Orbitron',sans-serif;font-size:10px;letter-spacing:6px;color:#00ffc866;margin:20px 0 4px;text-align:center">── FREE ROAM ──</div>
+    <div style="font-family:'Orbitron',sans-serif;font-size:clamp(18px,5vw,26px);font-weight:900;letter-spacing:4px;color:#fff;margin-bottom:20px;text-align:center"><span class="sheen">CHOOSE A LEVEL</span></div>
+
+    <!-- ★ CURATED LEVELS (the keepers) -->
+    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;width:100%;max-width:360px;padding:0 16px;margin-bottom:14px">
+      <button onclick="window._launchLevel(0)" class="zone-btn" style="--c:#00ffc8;flex:1;min-width:90px">
+        <div style="display:flex"><svg width="24" height="24" viewBox="0 0 24 24" stroke="#00ffc8" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#00ffc8"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg></div><div style="font-size:9px;letter-spacing:2px;color:#00ffc8">FLAT WORLD</div></button>
+      <button onclick="window._cityMode='ring';startGameAtLevel(-16)" class="zone-btn" style="--c:#ffcc00;flex:1;min-width:90px">
+        <div style="display:flex"><svg width="24" height="24" viewBox="0 0 24 24" stroke="#ffcc00" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#ffcc00"><rect x="3" y="11" width="4.5" height="10"/><rect x="9.5" y="4" width="5" height="17"/><rect x="16.5" y="13" width="4.5" height="8"/></svg></div><div style="font-size:9px;letter-spacing:2px;color:#ffcc00">CITY</div></button>
+      <button onclick="window._launchLevel(-4)" class="zone-btn" style="--c:#4488ff;flex:1;min-width:90px">
+        <div style="display:flex"><svg width="24" height="24" viewBox="0 0 24 24" stroke="#4488ff" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#4488ff"><circle cx="12" cy="12" r="5"/><ellipse cx="12" cy="12" rx="10" ry="3.4"/></svg></div><div style="font-size:9px;letter-spacing:2px;color:#4488ff">PLANET</div></button>
+      <button onclick="window._launchLevel(-7)" class="zone-btn" style="--c:#ff66cc;flex:1;min-width:90px">
+        <div style="display:flex"><svg width="24" height="24" viewBox="0 0 24 24" stroke="#ff66cc" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#ff66cc"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg></div><div style="font-size:9px;letter-spacing:2px;color:#ff66cc">HOME BASE</div></button>
+      <button onclick="window._launchLevel(-11)" class="zone-btn" style="--c:#88ff66;flex:1;min-width:90px">
+        <div style="display:flex"><svg width="24" height="24" viewBox="0 0 24 24" stroke="#88ff66" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#88ff66"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="5.5" r="1.6"/><circle cx="18.5" cy="12" r="1.6"/><circle cx="12" cy="18.5" r="1.6"/><circle cx="5.5" cy="12" r="1.6"/></svg></div><div style="font-size:9px;letter-spacing:2px;color:#88ff66">ASSET ROOM</div></button>
+      <button onclick="window._launchLevel(-12)" class="zone-btn" style="--c:#44ccff;flex:1;min-width:90px">
+        <div style="display:flex"><svg width="24" height="24" viewBox="0 0 24 24" stroke="#44ccff" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#44ccff"><circle cx="12" cy="12" r="6"/><ellipse cx="12" cy="12" rx="10.5" ry="4"/><ellipse cx="12" cy="12" rx="10.5" ry="4" transform="rotate(60 12 12)"/></svg></div><div style="font-size:9px;letter-spacing:2px;color:#44ccff">PLASMA CORE</div></button>
+      <button onclick="window._launchLevel(-15)" class="zone-btn" style="--c:#ff3ce0;flex:1;min-width:90px">
+        <div style="display:flex"><svg width="24" height="24" viewBox="0 0 24 24" stroke="#ff3ce0" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="mi" style="--g:#ff3ce0"><circle cx="12" cy="12" r="7"/><path d="M5 12h14M12 5v14" opacity="0.6"/><circle cx="12" cy="12" r="2.4"/></svg></div><div style="font-size:9px;letter-spacing:2px;color:#ff3ce0">MORPH LAB</div></button>
+    </div>
+
+    <!-- Dev vault toggle: reveals every legacy zone/mission/sandbox, nothing lost -->
+    <button onclick="var v=document.getElementById('ls-vault');var open=v.style.display!=='none';v.style.display=open?'none':'block';this.innerHTML=(open?'⚙ ALL ZONES — dev vault':'▲ HIDE DEV VAULT')" style="width:100%;max-width:360px;margin:0 auto 10px;display:block;padding:10px;font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:3px;color:#ffffff66;background:rgba(255,255,255,0.03);border:1px solid #ffffff22;border-radius:8px;cursor:pointer">⚙ ALL ZONES — dev vault</button>
+
+    <div id="ls-vault" style="display:none;width:100%">
+    <div style="font-family:'Orbitron',sans-serif;font-size:8px;letter-spacing:4px;color:#ffffff33;margin:2px 0 12px;text-align:center">── ALL ZONES (DEV) ──</div>
     <!-- Quick missions -->
     <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;width:100%;max-width:360px;padding:0 16px;margin-bottom:16px">
       <button onclick="window._launchSurvival()" class="zone-btn" style="--c:#ff2a6d;flex:1;min-width:90px">
@@ -517,6 +570,7 @@ body.lightmode #ui{filter:invert(1) hue-rotate(180deg)}
     <button onclick="window._cityMode='grid';startGameAtLevel(-16)" style="width:100%;max-width:360px;margin:8px auto 0;display:block;padding:13px;font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;color:#39ffc9;background:rgba(57,255,201,0.06);border:1.5px solid #39ffc955;border-radius:8px;cursor:pointer">CITY MAP — street-grid layout (perf test)</button>
     <button onclick="window._cityGoto&&window._cityGoto()" style="width:100%;max-width:360px;margin:8px auto 0;display:block;padding:13px;font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;color:#ffd24a;background:rgba(255,210,74,0.06);border:1.5px solid #ffd24a55;border-radius:8px;cursor:pointer">CITY FROM MAP — real OSM footprints (live web)</button>
     <button onclick="startGameAtLevel(-17)" style="width:100%;max-width:360px;margin:8px auto 0;display:block;padding:13px;font-family:'Orbitron',sans-serif;font-size:11px;letter-spacing:3px;color:#ff7df0;background:rgba(255,125,240,0.06);border:1.5px solid #ff7df055;border-radius:8px;cursor:pointer">SOUND REACTIVE — music visualizer sandbox</button>
+    </div><!-- /ls-vault -->
     <button onclick="window._showScreen('character')" style="margin-top:20px;font-family:'Orbitron',sans-serif;font-size:9px;letter-spacing:4px;color:#ffffff33;background:none;border:none;cursor:pointer"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:7px"><path d="M15 5 8 12l7 7"/></svg>BACK</button>
   </div>
 
@@ -9230,12 +9284,13 @@ class Player{
     else if(lvl>=2){ fire(ab,'normal');fire(ab+0.13,'normal');fire(ab-0.13,'normal'); }
     else fire(ab,'normal');
     if(MP.active) mpSend('event',{event:'shot',data:{x:spawnX,z:spawnZ,y:y0,a,lvl,od:!!od}});   // 1 event per shot -> remote shows every bullet
-    if(!(bones&&bones[handBone])){ const _md=(this._aim3DActive&&this._aim3D)?this._aim3D:{x:Math.cos(a),z:Math.sin(a)}; const _my=(this._inPlanetGravity?(this.py+10):5); ps.spark(this.wx+_md.x*14,this.wz+_md.z*14,[1,0.85,0],_my); } }   // ground spark only for the bone-less procedural ship; the robot uses the hand muzzle flash
+    if(!_mzKind){ const _md=(this._aim3DActive&&this._aim3D)?this._aim3D:{x:Math.cos(a),z:Math.sin(a)}; const _my=(this._inPlanetGravity?(this.py+10):5); ps.spark(this.wx+_md.x*14,this.wz+_md.z*14,[1,0.85,0],_my); } }   // ground spark only for the bone-less procedural ship; the robot uses the hand/shoulder muzzle flash
   _firePlasma(od){
     const a=this.aim;
     let y0=9+this.py, sx=this.wx, sz=this.wz;
-    const bones=this.model?.userData?.bones, hb=this._hammer?'mixamorig_LeftHand':(this._plasmaSide?'mixamorig_LeftHand':'mixamorig_RightHand'); this._plasmaSide=!this._plasmaSide;
-    if(bones&&bones[hb]){ const hp=new THREE.Vector3(); bones[hb].getWorldPosition(hp); y0=hp.y; sx=hp.x; sz=hp.z; }
+    const _pslot=this._plasmaSide?1:0; this._plasmaSide=!this._plasmaSide;   // alternate hand; shoulder-mounted when a melee weapon is equipped
+    const _pm=new THREE.Vector3(), _pk=(typeof _stanceMuzzle==='function')?_stanceMuzzle(this,_pslot,_pm):null;
+    if(_pk){ y0=_pm.y; sx=_pm.x; sz=_pm.z; }
     else if(this.model?.userData?.isRobot){ y0=22+this.py; }
     let dx=Math.cos(a), dy=0, dz=Math.sin(a);
     if(this._aim3DActive&&this._aim3D){ dx=this._aim3D.x; dy=this._aim3D.y; dz=this._aim3D.z; }
@@ -9249,8 +9304,8 @@ class Player{
     { const lk=this._lockEnemy; if(lk&&lk.alive){ const dx=lk.wx-this.wx, dz=lk.wz-this.wz, dd=Math.hypot(dx,dz)||1; a=Math.atan2(dz,dx); D=Math.max(45,Math.min(360,dd)); } }   // grace-aim: ring on a target -> lob straight at them (they can still jump/dodge)
     const g=320, vy=od?205:178, tf=2*vy/g, sh=D/tf;                       // pick speed so it first lands ~D away
     let y0=14+this.py, sx=this.wx, sz=this.wz;
-    this._grenSide=!this._grenSide; const bones=this.model&&this.model.userData&&this.model.userData.bones, hb=bones&&(this._hammer?(bones['mixamorig_LeftHand']||bones['mixamorig_RightHand']):(this._grenSide?(bones['mixamorig_LeftHand']||bones['mixamorig_RightHand']):(bones['mixamorig_RightHand']||bones['mixamorig_LeftHand'])));
-    if(hb){ const hp=new THREE.Vector3(); hb.getWorldPosition(hp); y0=hp.y; sx=hp.x; sz=hp.z; }
+    this._grenSide=!this._grenSide; const _gslot=this._grenSide?1:0;   // alternate hand; shoulder-mounted when a melee weapon is equipped
+    const _gm=new THREE.Vector3(); if((typeof _stanceMuzzle==='function')&&_stanceMuzzle(this,_gslot,_gm)){ y0=_gm.y; sx=_gm.x; sz=_gm.z; }
     GS.dropBombs.push(new Grenade(sx,sz,y0, Math.cos(a)*sh, Math.sin(a)*sh, vy));
     if(typeof Audio!=='undefined'){ Audio.blip(68,0.13,'sine',0.32,38); Audio.blip(150,0.05,'square',0.12,90); }   // THUNK
     if(typeof addTrauma==='function')addTrauma(0.03);
@@ -9321,13 +9376,8 @@ class Player{
       else if(!this._inPlanetGravity){ dirY=0; }   // rockets launch flat and let heat-seeking do the work — no downward pitch
       // Get hand bone world position — alternate R/L hand each burst
       const side=(this._rocketSide+i)%2;
-      const handBone=this._hammer?'mixamorig_LeftHand':(side===0?'mixamorig_RightHand':'mixamorig_LeftHand');
       let spawnX=this.wx+dirX*14, spawnZ=this.wz+dirZ*14, y0=9+this.py;
-      if(bones&&bones[handBone]){
-        const hp=new THREE.Vector3();
-        bones[handBone].getWorldPosition(hp);
-        spawnX=hp.x; spawnZ=hp.z; y0=hp.y;
-      }
+      const _rm=new THREE.Vector3(); if((typeof _stanceMuzzle==='function')&&_stanceMuzzle(this,side,_rm)){ spawnX=_rm.x; spawnZ=_rm.z; y0=_rm.y; }   // hand, or shoulder-mounted launcher when melee is equipped
       GS.missiles.push(new Missile(spawnX,spawnZ,dirX,dirZ,y0,dirY));
       if(GS.zone===-16 && this._onPlatform && !this._inPlanetGravity) GS.missiles[GS.missiles.length-1]._noOrbit=true;   // rooftop rockets ignore building gravity
       if(MP.active) mpSend('event',{event:'shot',data:{x:spawnX,z:spawnZ,y:y0,a:ang,rocket:true,vy:dirY}});   // per-hand spawn so remote matches L/R
@@ -15137,7 +15187,7 @@ function loop(ts){ requestAnimationFrame(loop);
       if(GS.zone===-13){ updateRLArena(dt); }
       if(GS.zone===-14){ updateRopeZone(dt); }
       if(GS.zone===-15){ updateGridLab(dt); }
-      if(GS.zone===-16){ updateCityGravity(dt); }
+      if(GS.zone===-16){ if(window._cityPlanet){ _cityUpdatePlanet(dt); } else { window._planetOwns=false; } updateCityGravity(dt); }
 
       for(let i=GS_bots.length-1;i>=0;i--){
         const bot=GS_bots[i];
@@ -18526,7 +18576,7 @@ function updateLabGravity(dt){
     tan=pf.clone().multiplyScalar(-ry).addScaledVector(pr, rx);             // up = toward top of screen
     if(tan.lengthSq()>1e-4){ tan.normalize(); _glLastTN.copy(pf); } else tan=null;
   }
-  const ACC=950, MAXS=210, GRAV=720, FR=0.80;
+  const ACC=950, MAXS=260, GRAV=760, FR=0.80;
   if(grounded){
     if(tan) _glGVel.addScaledVector(tan, ACC*Math.min(1,inMag)*dt);
     _glGVel.addScaledVector(N,-_glGVel.dot(N));               // keep purely tangential
@@ -18543,8 +18593,10 @@ function updateLabGravity(dt){
     player._jetting=false;   // standing on the surface never jets — holding the stick is aim/shoot. (To leave: hop, then hold while airborne.)
   } else {
     /* boost-exit handled before the grounded/airborne split */
+    if(player._jumpTapped){ player._jumpTapped=false; _glGVel.addScaledVector(N,210); _glExitGrav(P,_glGVel); return; }   // tap jump while airborne -> pop off the planet (reliable dislodge)
     _glGVel.addScaledVector(N,-GRAV*dt);
-    if(tan) _glGVel.addScaledVector(tan, 320*Math.min(1,inMag)*dt);
+    if(tan) _glGVel.addScaledVector(tan, 420*Math.min(1,inMag)*dt);
+    { const vN=_glGVel.dot(N); const vt=_glGVel.clone().addScaledVector(N,-vN); _glGVel.addScaledVector(vt, -Math.min(0.2, 0.15*dt)); }   // whisper of orbital drag: momentum carries so you can extend a wide orbit, but it still slowly settles (and gravity pulls sub-orbital jumps straight back)
     if(_glGVel.length()>920) _glGVel.setLength(920);
     P.addScaledVector(_glGVel,dt);
     player._galSpeed=0;
@@ -20034,7 +20086,7 @@ function _shoulderTargetTransform(anchor, side, outPos, outQuat){
   _shUp2.crossVectors(_shAim,_shRight).normalize();
   outQuat.setFromRotationMatrix(_shMat.makeBasis(_shRight,_shUp2,_shAim));   // barrel(+Z) -> aim
   anchor.getWorldPosition(_shBp);
-  const lift=(window._SH_LIFT!=null?window._SH_LIFT:11), out=(window._SH_OUT!=null?window._SH_OUT:7)*(side==='R'?-1:1), back=(window._SH_BACK!=null?window._SH_BACK:-2);
+  const lift=(window._SH_LIFT!=null?window._SH_LIFT:6), out=(window._SH_OUT!=null?window._SH_OUT:7)*(side==='R'?-1:1), back=(window._SH_BACK!=null?window._SH_BACK:-2);
   outPos.copy(_shBp).addScaledVector(_shUp,lift).addScaledVector(_shRight,out).addScaledVector(_shAim,back);   // R arm -> R shoulder, nudged headward
   return true;
 }
@@ -20112,7 +20164,7 @@ function _updateHandWeapons(dt){
     if(player._lastHandWpn!=null && typeof ps!=='undefined'){
       const _col=(_WPN_COLORS[weapon]||0x00ccff), _c=[((_col>>16)&255)/255,((_col>>8)&255)/255,(_col&255)/255];
       const _puff=(b)=>{ if(!b)return; b.getWorldPosition(_shScratchBp); for(let i=0;i<14;i++){ const an=Math.random()*6.283, sp=40+Math.random()*80; ps._spawn(_shScratchBp.x,_shScratchBp.y,_shScratchBp.z, Math.cos(an)*sp,(Math.random()-0.2)*70,Math.sin(an)*sp, _c[0],_c[1],_c[2], 0.05+Math.random()*0.06); } };
-      _puff(RH); _puff(LH);
+      _puff(RH); _puff(LH); _puff(player._shR&&player._shR.mesh); _puff(player._shL&&player._shL.mesh);
     }
     player._handSwapT=(player._lastHandWpn!=null)?(window._SWAP_DUR!=null?window._SWAP_DUR:0.34):0;
     player._lastHandWpn=weapon;
@@ -20473,7 +20525,28 @@ function buildCityTest(){
     return; }   // client: request & mirror the host building layout
   const cell=30, pal='neon', mode=(typeof window!=='undefined' && window._cityMode)||'random';
   if(mode==='map'){ if(typeof window._cityLoadOSM==='function') window._cityLoadOSM(window._cityMapLat,window._cityMapLon,window._cityMapRadius); return; }
-  if(mode==='grid'){
+  if(mode==='ring'){
+    // INTENTIONAL PLAZA — procedural towers ringed around an open central plaza.
+    // The middle stays clear on purpose: the floating central planet + launchpad is the next pass.
+    const RING_R=380, COUNT=IS_MOBILE?8:11;
+    for(let i=0;i<COUNT;i++){
+      const a=(i/COUNT)*TAU + (Math.random()*0.10-0.05);
+      const r=RING_R + (Math.random()*60-30);
+      const bx=Math.cos(a)*r, bz=Math.sin(a)*r;
+      const wc=3+Math.floor(Math.random()*3), dc=3+Math.floor(Math.random()*3), hc=8+Math.floor(Math.random()*9);   // 8-16 storeys
+      _cityAddBuilding(bx,bz, wc*cell/2, dc*cell/2, hc*cell, pal);
+    }
+    // ── central morphable planet (reuses the lab gravity body) + plaza launch pad ──
+    try{
+      _glClearSheets(); _glKind=2; _glBuildShapes(); _glBuildMorphButton(); _glMorphTo=1;   // warps in as a cube, morphs to a sphere; the pad toggles it back
+      window._cityPlanet=true; window._planetOwns=false; window._cityLaunchCD=0;
+      const lp=new THREE.Mesh(new THREE.RingGeometry(20,38,40), new THREE.MeshBasicMaterial({color:0xff3ce0,transparent:true,opacity:0.4,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));
+      lp.rotation.x=-Math.PI/2; lp.position.set(0,1.2,0); scene.add(lp);
+      const lpc=new THREE.Mesh(new THREE.CylinderGeometry(6,6,40,8), new THREE.MeshBasicMaterial({color:0xff3ce0,transparent:true,opacity:0.12,blending:THREE.AdditiveBlending,depthWrite:false}));
+      lpc.position.set(0,20,0); scene.add(lpc);
+      window._cityLaunchPad={ring:lp,col:lpc,t:0};
+    }catch(e){ console.warn('city planet:',e); window._cityPlanet=false; }
+  } else if(mode==='grid'){
     // MAP-STYLE LAYOUT: a street grid of varied buildings. Footprint-array driven, so OSM/hand-authored data can
     // feed the same path later. Denser than the sandbox on purpose — this is the performance / asset-port test.
     const G=IS_MOBILE?3:4, pitch=360, half=(G-1)*pitch/2;
@@ -20506,7 +20579,7 @@ function buildCityTest(){
   _spawnWeaponPad(-50,128,'rockets');
   _spawnWeaponPad(-100,128,'plasma');
   _spawnWeaponPad(-150,128,'grenade');
-  if(player){ player.wx=0; player.wz=30; player.py=9; player.pvy=0; }   // spawn a few steps back so you don't land on the boots
+  if(player){ player.wx=0; player.wz=(window._cityMode==='ring'?100:30); player.py=9; player.pvy=0; }   // spawn a few steps back (further in ring mode so you don't land on the launch pad)
   if(typeof _cityMakeTestUI==='function') _cityMakeTestUI();
   _cityBroadcastLayout();
 }
@@ -20525,6 +20598,51 @@ function _disposeCityTest(){
   _cityProps={powerups:[],arches:[],railGroup:null,railGroups:[]};
   window._grindRail=null; window._grindSamples=[]; window._grindRails=[];
   if(player){ player._grinding=null; player._grindCooldown=0; }
+  if(window._cityPlanet){
+    try{ _glClearSheets(); }catch(e){}
+    if(_glMorphBtn){ for(const m of [_glMorphBtn.mesh,_glMorphBtn.ring,_glMorphBtn.glow]) if(m)scene.remove(m); _glMorphBtn=null; }
+    if(window._cityLaunchPad){ for(const m of [window._cityLaunchPad.ring,window._cityLaunchPad.col]) if(m)scene.remove(m); window._cityLaunchPad=null; }
+    _glMeta=null; _glGravOn=false; if(player) player._inPlanetGravity=false;
+    window._cityPlanet=false; window._planetOwns=false;
+  }
+}
+// Drive the city's central morphable planet: morph + warp visuals, the plaza launch pad, and the
+// shared lab gravity well — but only ever when a building isn't already holding the player.
+function _cityUpdatePlanet(dt){
+  if(!window._cityPlanet || !_glRoot || !_glMeta){ window._planetOwns=false; return; }
+  if(typeof _glUpdateMorphButton==='function') _glUpdateMorphButton(dt);   // stand on the pad -> toggle sphere<->cube
+  _glRoot.updateMatrixWorld(true);
+  if(_glSheets.length && _glSheets[0]._morphable){
+    if(_glMorphT!==_glMorphTo){
+      _glMorphT += (_glMorphTo>_glMorphT?1:-1)*dt*1.25; _glMorphT=Math.max(0,Math.min(1,_glMorphT));
+      if(Math.abs(_glMorphT-_glMorphTo)<0.02) _glMorphT=_glMorphTo;
+      const e=_glMorphT<0.5?2*_glMorphT*_glMorphT:1-Math.pow(-2*_glMorphT+2,2)/2;
+      for(const s of _glSheets){ if(!s._morphable)continue;
+        for(let i=0;i<s.n;i++){ s.ru[i]=s._cU[i]+(s._sU[i]-s._cU[i])*e; s.rv[i]=s._cV[i]+(s._sV[i]-s._cV[i])*e; s.ry[i]=s._sY[i]*e; }
+        s.beat=Math.min(1,s.beat+0.02); }
+    }
+    const ef=_glMorphT<0.5?2*_glMorphT*_glMorphT:1-Math.pow(-2*_glMorphT+2,2)/2;
+    _glRoot.position.y = _GL_CUBE_Y + (_GL_SPHERE_Y-_GL_CUBE_Y)*ef;
+  }
+  for(const s of _glSheets) s.update(dt);
+  if(_glWarp && _glRoot){
+    _glWarpT+=dt; _glWarpV += (1-_glWarpS)*0.055; _glWarpV*=0.80; _glWarpS+=_glWarpV;
+    _glRoot.scale.setScalar(Math.max(0.02,_glWarpS));
+    if(Math.abs(_glWarpV)<0.002 && Math.abs(1-_glWarpS)<0.008){ _glRoot.scale.setScalar(1); _glWarp=false; }
+  }
+  if(window._cityLaunchCD>0) window._cityLaunchCD-=dt;
+  if(window._cityLaunchPad){ const L=window._cityLaunchPad; L.t+=dt; if(L.ring){ L.ring.material.opacity=0.3+0.2*Math.sin(L.t*4); L.ring.scale.setScalar(1+0.08*Math.sin(L.t*3)); } }
+  // LAUNCH PAD — stand on the plaza pad to get flung up to the planet
+  if(player && player.alive && !_glGravOn && !_cgBox && (window._cityLaunchCD||0)<=0){
+    if(Math.hypot(player.wx,player.wz)<40 && player.py<16 && (player.pvy||0)<=30){
+      player.pvy=1180; player.boostFuel=player.boostMax; player.boostRecharge=0; window._cityLaunchCD=0.8;
+      if(typeof ps!=='undefined' && ps.ring) ps.ring(0,0,[1,0.24,0.88],26,150);
+      if(typeof Audio!=='undefined') Audio.blip(200,0.35,'sawtooth',0.16,940);
+      if(typeof announce==='function') announce('LAUNCH','#ff3ce0');
+    }
+  }
+  if(!_cgBox && typeof updateLabGravity==='function') updateLabGravity(dt);   // planet capture/drive
+  window._planetOwns = (_glGravOn && !_cgBox);
 }
 function updateCityTest(dt){
   if(typeof _updateCityDome==='function') _updateCityDome(dt);
@@ -20651,6 +20769,7 @@ function _cityLedgeHangPlayer(p,dt){
 }
 function updateCityGravity(dt){
   if(!player||!player.alive||!_cityBoxes.length) return;
+  if(window._planetOwns) return;   // the central planet owns the player -> don't let building wall-crawl fight it
   const PR=9, V3=(x,y,z)=>new THREE.Vector3(x,y,z);
   if(_cgNoGrab>0) _cgNoGrab-=dt;
   const P=new THREE.Vector3(player.wx,player.py,player.wz);
@@ -21767,7 +21886,7 @@ window.addEventListener('unhandledrejection', e=>{
 try{ buildLevelSelect(); }catch(e){ console.warn('buildLevelSelect:',e); }
 try{ renderLeaderboard(document.getElementById('lb-list')); }catch(e){ const el=document.getElementById('lb-list'); if(el)el.innerHTML='<div style="text-align:center;color:#ffffff44;padding:16px">Scores saved locally</div>'; }
 // ══ SCREEN NAVIGATION ══
-const _screens=['splash','title','mode','character','levelselect','mp','settings'];
+const _screens=['splash','title','mode','gamemode','character','levelselect','mp','settings'];
 window._showScreen=function(name){
   _screens.forEach(s=>{
     const el=document.getElementById('screen-'+s);
@@ -21871,6 +21990,14 @@ window._launchSurvival=function(){
   window._onslaughtArena=false;
   document.getElementById('overlay').style.display='none';
   startGame(-5);   // survival = clean flat-grid round framework (construct → round → gate → deconstruct → rebuild)
+};
+
+window._gameMode='freeroam';
+window._deploy=function(){
+  const m=window._gameMode||'freeroam';
+  if(m==='survival'){ window._launchSurvival(); }
+  else if(m==='training'){ window._launchLevel(-2); }
+  else { window._showScreen('levelselect'); }   // freeroam -> curated level list
 };
 
 window._selectChar=function(idx){
@@ -22425,18 +22552,17 @@ try{ init(); requestAnimationFrame(loop); }catch(e){ console.error('Init failed:
     particles=targets.map(t=>{
       const a=Math.random()*Math.PI*2,d=F*(0.40+Math.random()*1.0);
       return { tx:t.x,ty:t.y, x:t.x+Math.cos(a)*d, y:t.y+Math.sin(a)*d, vx:0,vy:0,
-        maxSpeed:(7.5+Math.random()*4.5)*sc*speed, maxForce:(0.26+Math.random()*0.16)*sc*speed,
-        damp:0.955+Math.random()*0.012, col:GRID_COLS[(Math.random()*GRID_COLS.length)|0],
+        maxSpeed:(9.0+Math.random()*10.0)*sc*speed,
+        k:0.018+Math.random()*0.045,                 // spring stiffness — varied arrival timing
+        damp:0.86+Math.random()*0.075,               // 0.86-0.935 underdamped -> rubbery overshoot + wobble (lower = wobblier)
+        col:GRID_COLS[(Math.random()*GRID_COLS.length)|0],
         rot:(Math.random()-0.5)*4.0, rotV:(Math.random()-0.5)*0.6, trot:0 };
     });
   }
   function step(p,lock){
     if(lock>=1){ p.x=p.tx; p.y=p.ty; p.vx=0; p.vy=0; p.rot=p.trot; p.rotV=0; return; }
-    let dx=p.tx-p.x,dy=p.ty-p.y,d=Math.hypot(dx,dy);
-    if(d>0.0001){ dx=dx/d*p.maxSpeed; dy=dy/d*p.maxSpeed; }
-    let sx=dx-p.vx,sy=dy-p.vy; const sl=Math.hypot(sx,sy);
-    if(sl>p.maxForce){ sx=sx/sl*p.maxForce; sy=sy/sl*p.maxForce; }
-    p.vx=(p.vx+sx)*p.damp; p.vy=(p.vy+sy)*p.damp;
+    const dx=p.tx-p.x, dy=p.ty-p.y;
+    p.vx=(p.vx+dx*p.k)*p.damp; p.vy=(p.vy+dy*p.k)*p.damp;   // SPRING toward target + damping -> rubbery overshoot & wobble
     const sp=Math.hypot(p.vx,p.vy);
     if(sp>p.maxSpeed){ p.vx=p.vx/sp*p.maxSpeed; p.vy=p.vy/sp*p.maxSpeed; }
     p.x+=p.vx; p.y+=p.vy;
